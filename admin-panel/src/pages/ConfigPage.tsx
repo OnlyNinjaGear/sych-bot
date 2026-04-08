@@ -9,9 +9,11 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Field, FieldGroup, FieldLabel, FieldDescription } from '@/components/ui/field'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import { PROVIDERS, type ProviderId } from '@/lib/models'
 import { RefreshButton } from '@/components/unlumen-ui/refresh'
+import { Label } from '@/components/ui/label'
 
 interface Config {
   telegram: { TELEGRAM_BOT_TOKEN: string; ADMIN_USER_ID: string }
@@ -62,27 +64,36 @@ function GeminiKeyRow({
   value,
   paid,
   onPaidChange,
+  onChange,
   action,
 }: {
   label: string
   value: string
   paid: boolean
   onPaidChange: (v: boolean) => void
+  onChange?: (v: string) => void
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border px-3 py-2">
-      <div className="flex-1 min-w-0">
+    <div className="flex flex-col gap-2 rounded-lg border p-3">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="font-mono text-xs truncate text-foreground/70">
-          {value ? `${value.slice(0, 8)}${'•'.repeat(12)}` : '—'}
+        <div className="flex flex-row items-center gap-2">
+          <Label htmlFor={label} className="text-xs text-muted-foreground">Платный</Label>
+          <Switch id={label} checked={paid} onCheckedChange={onPaidChange} />
+          {action}
+        </div>
+      </div>
+      {onChange ? (
+        <MaskedInput value={value} onChange={onChange} placeholder="AIzaSy..." />
+      ) : (
+        <p className={cn(
+          "font-mono text-xs truncate",
+          paid ? "text-primary font-bold" : "text-muted-foreground"
+        )}>
+          {value ? `${value.slice(0, 8)}${'*'.repeat(23)}${value.slice(-8)}` : '—'}
         </p>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="text-xs text-muted-foreground">Платный</span>
-        <Switch checked={paid} onCheckedChange={onPaidChange} />
-        {action}
-      </div>
+      )}
     </div>
   )
 }
@@ -272,15 +283,15 @@ export default function ConfigPage() {
               </Field>
               <Field>
                 <FieldLabel>Base URL</FieldLabel>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-6 gap-2">
                   <Input
                     value={config.ai.AI_BASE_URL}
                     onChange={e => { updateAi('AI_BASE_URL', e.target.value); setUrlEdited(true) }}
                     placeholder={providerDef.baseUrl || 'https://...'}
-                    className="font-mono text-sm"
+                    className="font-mono text-sm col-span-5"
                   />
                   {(urlEdited || config.ai.AI_BASE_URL !== providerDef.baseUrl) && providerDef.baseUrl && (
-                    <Button type="button" variant="outline" size="sm" onClick={resetBaseUrl}>
+                    <Button className='h-full col-span-1' type="button" variant="outline" size="sm" onClick={resetBaseUrl}>
                       Сбросить
                     </Button>
                   )}
@@ -305,10 +316,10 @@ export default function ConfigPage() {
                 <FieldLabel>Провайдер</FieldLabel>
                 <Select value={config.search.SEARCH_PROVIDER} onValueChange={v => updateSearch('SEARCH_PROVIDER', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tavily">Tavily — лучший RAG-поиск, отдельный API</SelectItem>
-                    <SelectItem value="perplexity">Perplexity Sonar — через OpenRouter</SelectItem>
-                    <SelectItem value="google">Google Native — встроенный поиск Gemini</SelectItem>
+                  <SelectContent className='p-3 py-4' position='popper'>
+                    <SelectItem value="tavily">Tavily <span className='text-xs text-muted-foreground ml-2'>Лучший RAG-поиск, отдельный API</span></SelectItem>
+                    <SelectItem value="perplexity">Perplexity Sonar <span className='text-xs text-muted-foreground ml-2'>Через OpenRouter</span></SelectItem>
+                    <SelectItem value="google">Google Native <span className='text-xs text-muted-foreground ml-2'>Встроенный поиск Gemini</span></SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -333,31 +344,35 @@ export default function ConfigPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               Ключи Google Gemini
-              <Badge variant="secondary" className="text-xs font-normal">⚡ горячая замена</Badge>
+              <Badge variant="secondary" className="text-xs font-sans select-none" data-icon="inline-start">
+                <span data-icon="inline-start text-2xs">🔥</span>
+                Hot-Reload
+              </Badge>
             </CardTitle>
             <CardDescription>
-              Native fallback когда основной канал исчерпан. Платные ключи приоритетны для платных моделей.
+              Native Fallback, когда основной канал исчерпан. Платные ключи приоритетны для платных моделей.
               {paidKeyCount > 0 && <span className="ml-1 text-foreground">{paidKeyCount} платных из {totalKeys}.</span>}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <GeminiKeyRow
-              label="Основной ключ (GOOGLE_GEMINI_API_KEY)"
+              label="Основной ключ"
               value={config.gemini.primary}
               paid={paidArray[0]}
               onPaidChange={v => setKeysPaid(() => { const n = [...paidArray]; n[0] = v; return n })}
+              onChange={v => setConfig(prev => prev ? { ...prev, gemini: { ...prev.gemini, primary: v } } : prev)}
             />
             {config.gemini.additional.map((key, i) => (
               <GeminiKeyRow
                 key={i}
-                label={`Ключ #${i + 2} (GOOGLE_GEMINI_API_KEY_${i + 2})`}
+                label={`Ключ №${i + 2}`}
                 value={key}
                 paid={paidArray[i + 1]}
                 onPaidChange={v => setKeysPaid(() => { const n = [...paidArray]; n[i + 1] = v; return n })}
                 action={
                   <Button
                     variant="ghost"
-                    size="icon-sm"
+                    size="icon-lg"
                     className="text-destructive"
                     onClick={() => removeKey.mutate(i)}
                     disabled={removeKey.isPending}
