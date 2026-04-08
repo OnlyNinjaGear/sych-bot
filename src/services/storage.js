@@ -606,7 +606,7 @@ class StorageService {
     console.log(`[CHAT PROFILE] Обновлен профиль чата ${chatId}: "${current.topic}"`);
   }
 
-  // Установить тему вручную (команда "Сыч, этот чат про...")
+  // Установить тему вручную (команда "Тоха, этот чат про...")
   setChatTopic(chatId, topic) {
     if (!this.chatProfiles[chatId]) {
       this.chatProfiles[chatId] = { topic: null, facts: null, style: null, lastUpdated: null };

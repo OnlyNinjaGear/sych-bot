@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Sych Bot is a Telegram bot with hybrid AI architecture (OpenRouter primary, Google Gemini fallback). It's a stateful conversational agent with character, memory, and autonomous decision-making capabilities. The bot operates primarily in Russian.
+Toha Bot is a Telegram bot with hybrid AI architecture (OpenRouter primary, Google Gemini fallback). It's a stateful conversational agent with character, memory, and autonomous decision-making capabilities. The bot operates primarily in Russian.
 
 - **Node.js**: 18+ required
 - **Package Type**: CommonJS
@@ -17,10 +17,12 @@ npm start          # Run the bot locally
 npm install        # Install dependencies
 ```
 
+There is no test framework configured — no lint, no tests.
+
 ### Production Deployment (PM2)
 ```bash
-pm2 start src/index.js --name "sych-bot"
-pm2 restart sych-bot
+pm2 start src/index.js --name "toha-bot"
+pm2 restart toha-bot
 ```
 
 Auto-deployment triggers on push to `main` via GitHub Actions (`.github/workflows/deploy.yml`).
@@ -50,11 +52,9 @@ src/
 ├── core/
 │   ├── logic.js       # Main message handler and decision logic
 │   └── prompts.js     # System prompts and bot personality
-├── services/
-│   ├── ai.js          # Multi-provider AI service with fallback chain
-│   └── storage.js     # JSON file-based persistence (debounced saves)
-└── utils/
-    └── helpers.js     # Utility functions
+└── services/
+    ├── ai.js          # Multi-provider AI service with fallback chain
+    └── storage.js     # JSON file-based persistence (debounced saves)
 ```
 
 ### Data Storage (`/data` directory)
@@ -62,16 +62,23 @@ src/
 - `profiles.json` - User profiles (reputation, traits, interests)
 - `chatProfiles.json` - Chat profiles (topic, facts, style)
 - `instructions.json` - User-specific instructions
+- `stats.json` - Token usage statistics (daily/weekly/monthly/allTime)
 
 ### Message Processing Flow
 
-1. **index.js**: Receives Telegram message via polling
-2. **logic.js**: `processMessage()` handles routing:
-   - Ban check → Thread resolution → Admin presence check → Command detection
+1. **index.js**: Receives Telegram message via polling, ignores messages older than 2 minutes (prevents replaying old messages on restart)
+2. **index.js**: Security check — verifies admin is a member of each group chat, auto-leaves if not
+3. **logic.js**: `processMessage()` handles routing:
+   - Ban check → Thread resolution → Command detection
    - Private messages forward to admin
-   - Group messages go through AI processing
-3. **ai.js**: Multi-model response generation with search integration
-4. **storage.js**: Persist updates to JSON files
+   - Group messages go through AI decision (should bot respond?) then generation
+4. **ai.js**: Multi-model response generation with search integration
+5. **storage.js**: Persist updates to JSON files
+
+### In-Memory State (lost on restart)
+- `chatHistory` — last 30 messages per chat (in `logic.js`)
+- `analysisBuffers` — user profile batch analysis buffer, flushes every 20 messages
+- `chatAnalysisBuffers` — chat profile batch analysis buffer, flushes every 50 messages
 
 ### Hybrid AI Model Strategy
 
@@ -128,7 +135,7 @@ See `.env.example` for full configuration template.
 **Механизмы обновления:**
 - **Batch**: каждые 50 сообщений анализирует тему и факты чата
 - **Инициализация**: при пустом профиле и наличии 10+ сообщений в истории
-- **Ручная команда**: `Сыч, этот чат про [описание]`
+- **Ручная команда**: `Тоха, этот чат про [описание]`
 
 **Лимиты:**
 - `topic`: до 200 символов (1-2 предложения)
@@ -143,15 +150,17 @@ See `.env.example` for full configuration template.
 - **Graceful shutdown**: SIGINT handler saves all data before exit
 - **History limit**: Keeps last 30 messages per chat
 - **Profile updates queue**: Prevents race condition between Batch and Immediate
-- **Bot trigger pattern**: `/(?<![а-яёa-z])(сыч|sych)(?![а-яёa-z])/i`
+- **Bot trigger pattern**: `/(?<![а-яёa-z])(тоха|toha|тох|тохич|тошик|антоша|антошка|бот|ботяра|ботик|тохабот|тоха)(?![а-яёa-z])/i`
 - **Timezone**: Yekaterinburg UTC+5 for time-aware responses
 
 ## Bot Commands (in-chat)
 
 - `/start` - Bot info
+- `/help` - Feature list and usage guide
 - `/ban [username]` - Ban user (admin only)
 - `/unban [ID]` - Restore user (admin only)
-- `Сыч напомни [текст]` - Set reminder
-- `Сыч кто я?` - Show user profile
-- `Сыч стата` - Show token usage statistics
-- `Сыч, этот чат про [тема]` - Set chat topic manually
+- `/mute` - Toggle quiet mode in chat (admin only)
+- `Тоха напомни [текст]` - Set reminder
+- `Тоха кто я?` - Show user profile
+- `Тоха стата` - Show token usage statistics
+- `Тоха, этот чат про [тема]` - Set chat topic manually

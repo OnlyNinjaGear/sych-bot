@@ -1,4 +1,4 @@
-name: Deploy Sych Bot
+name: Deploy Toha Bot
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             source ~/.bashrc
 
-            # 2. Переходим в папку (ИСПРАВИЛ ОПЕЧАТКУ sych-bot -> sych_bot)
+            # 2. Переходим в папку (ИСПРАВИЛ ОПЕЧАТКУ toha-bot -> sych_bot)
             cd /home/your_user/sych_bot
             
             # 3. Скачиваем обновления
@@ -34,4 +34,4 @@ jobs:
             npm install --production
             
             # 5. Перезапускаем бота
-            pm2 restart sych-bot
+            pm2 restart toha-bot
