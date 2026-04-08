@@ -392,6 +392,9 @@ _ver: ${config.version}_
     if (command === '/reset') {
         chatHistory[chatId] = [];
         analysisBuffers[chatId] = [];
+        chatAnalysisBuffers[chatId] = [];
+        // Сброс профилей (репутация, факты) всех юзеров в этом чате
+        storage.resetChatProfiles(chatId);
         return bot.sendMessage(chatId, settings.get('responses').cleared, getBaseOptions(threadId));
     }
 
@@ -702,9 +705,16 @@ _ver: ${config.version}_
             initChatProfile(bot, chatId); // Асинхронно, не блокируем ответ
         }
 
+        // === БЫСТРЫЙ ОТВЕТ на короткие реакции ()), хах, лол) ===
+        if (isReplyToBot && text.length <= 5 && /^[)\]>хаХАлоЛОгГыЫ:;DdPp]+$/.test(text.trim())) {
+            console.log(`[QUICK] Короткая реакция на бота: "${text}"`);
+            try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji: '👍' }] }); } catch (e) { }
+            return;
+        }
+
         // === ЛЕНЬ — случайный ленивый ответ ===
         const laziness = settings.get('laziness') || 0;
-        if (laziness > 0 && Math.random() < laziness && !isDirectlyCalled) {
+        if (laziness > 0 && Math.random() < laziness) {
             const pool = settings.get('lazyResponses') || [];
             if (pool.length > 0) {
                 const lazy = pool[Math.floor(Math.random() * pool.length)];
@@ -716,7 +726,7 @@ _ver: ${config.version}_
         }
 
         // === SMART FILTER — перехват до дорогой модели ===
-        if (text.length > 0 && userId !== config.adminId) {
+        if (text.length > 0) {
             const filterConfig = settings.get('smartFilter');
             if (filterConfig && filterConfig.enabled) {
                 const filterHistory = (chatHistory[chatId] || []).slice(-10)

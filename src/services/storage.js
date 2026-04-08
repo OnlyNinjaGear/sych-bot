@@ -416,6 +416,15 @@ class StorageService {
 
   // === ПРОФИЛИ (Психологические портреты) ===
 
+  // Сбросить все профили (репутация, факты) в чате
+  resetChatProfiles(chatId) {
+    if (this.profiles[chatId]) {
+      delete this.profiles[chatId];
+      this._saveProfiles();
+      console.log(`[STORAGE] Профили чата ${chatId} сброшены`);
+    }
+  }
+
   // Получить один профиль (или заглушку)
   getProfile(chatId, userId) {
     if (!this.profiles[chatId]) this.profiles[chatId] = {};
