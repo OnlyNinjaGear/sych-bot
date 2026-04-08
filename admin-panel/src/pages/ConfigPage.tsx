@@ -14,6 +14,7 @@ import { api } from '@/lib/api'
 import { PROVIDERS, type ProviderId } from '@/lib/models'
 import { RefreshButton } from '@/components/unlumen-ui/refresh'
 import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
 
 interface Config {
   telegram: { TELEGRAM_BOT_TOKEN: string; ADMIN_USER_ID: string }
@@ -75,25 +76,27 @@ function GeminiKeyRow({
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border p-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <div className="flex flex-row items-center gap-2">
-          <Label htmlFor={label} className="text-xs text-muted-foreground">Платный</Label>
+    <div className="flex items-center gap-3 rounded-lg border p-3">
+      <div className="grid grid-cols-3 flex-1 min-w-0">
+        <div className="flex flex-col items-start gap-1 shrink-0 col-span-2">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          {onChange ? (
+            <MaskedInput value={value} onChange={onChange} placeholder="AIzaSy..." />
+          ) : (
+            <p className={cn(
+              "font-mono text-xs truncate",
+              paid ? "text-primary font-bold" : "text-muted-foreground"
+            )}>
+              {value ? `${value.slice(0, 8)}${'*'.repeat(23)}${value.slice(-8)}` : '—'}
+            </p>
+          )}
+        </div>
+        <div className='flex flex-row items-center gap-2 col-span-1'>
+          <Label htmlFor={label} className="text-xs text-muted-foreground ml-auto">Платный</Label>
           <Switch id={label} checked={paid} onCheckedChange={onPaidChange} />
           {action}
         </div>
       </div>
-      {onChange ? (
-        <MaskedInput value={value} onChange={onChange} placeholder="AIzaSy..." />
-      ) : (
-        <p className={cn(
-          "font-mono text-xs truncate",
-          paid ? "text-primary font-bold" : "text-muted-foreground"
-        )}>
-          {value ? `${value.slice(0, 8)}${'*'.repeat(23)}${value.slice(-8)}` : '—'}
-        </p>
-      )}
     </div>
   )
 }
@@ -384,21 +387,21 @@ export default function ConfigPage() {
             ))}
 
             {showAddKey ? (
-              <div className="flex gap-2 pt-1">
+              <div className="grid grid-cols-4 gap-2">
                 <Input
                   value={newKey}
                   onChange={e => setNewKey(e.target.value)}
-                  placeholder="AIzaSy..."
-                  className="font-mono text-sm"
+                  placeholder="API-ключ"
+                  className="font-mono col-span-2 h-10"
                   autoFocus
                 />
-                <Button size="sm" onClick={() => addKey.mutate(newKey)} disabled={!newKey || addKey.isPending}>
+                <Button size="lg" className='col-span-1 h-10' onClick={() => addKey.mutate(newKey)} disabled={!newKey || addKey.isPending}>
                   Добавить
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setShowAddKey(false)}>Отмена</Button>
+                <Button size="lg" className='col-span-1 h-10' variant="ghost" onClick={() => setShowAddKey(false)}>Отмена</Button>
               </div>
             ) : (
-              <Button variant="outline" size="sm" className="self-start" onClick={() => setShowAddKey(true)}>
+              <Button variant="outline" size="lg" className="self-start w-full h-10" onClick={() => setShowAddKey(true)}>
                 + Добавить ключ
               </Button>
             )}
@@ -442,25 +445,28 @@ export default function ConfigPage() {
               <AlertDialogTitle>Настройки сохранены</AlertDialogTitle>
               <AlertDialogDescription>
                 Для применения изменений нужно перезапустить:
-                {restartTargets.includes('bot') && <span className="block mt-1">• <strong>Бот</strong> — изменены настройки Telegram / AI / Поиска</span>}
-                {restartTargets.includes('server') && <span className="block mt-1">• <strong>Сервер панели</strong> — изменены настройки авторизации</span>}
+                {restartTargets.includes('bot') && <span className="block mt-1"><strong>Бот</strong> — изменены настройки Telegram / AI / Поиска</span>}
+                {restartTargets.includes('server') && <span className="block mt-1"><strong>Сервер панели</strong> — изменены настройки авторизации</span>}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="flex-wrap gap-2">
               <AlertDialogCancel>Потом</AlertDialogCancel>
               {restartTargets.includes('bot') && (
                 <Button variant="outline" onClick={() => restartBot.mutate()} disabled={restartBot.isPending}>
-                  {restartBot.isPending ? 'Перезапуск...' : '↺ Перезапустить бот'}
+                  {restartBot.isPending && <Spinner data-icon="inline-start" />}
+                  {restartBot.isPending ? 'Перезапуск...' : 'Перезапустить бот'}
                 </Button>
               )}
               {restartTargets.includes('server') && (
                 <AlertDialogAction onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
-                  {restartServer.isPending ? 'Перезапуск...' : '↺ Перезапустить сервер'}
+                  {restartServer.isPending && <Spinner data-icon="inline-start" />}
+                  {restartServer.isPending ? 'Перезапуск...' : 'Перезапустить сервер'}
                 </AlertDialogAction>
               )}
               {restartTargets.length === 2 && (
                 <Button onClick={async () => { await restartBot.mutateAsync(); restartServer.mutate() }} disabled={restartBot.isPending || restartServer.isPending}>
-                  ↺ Перезапустить всё
+                  {restartBot.isPending || restartServer.isPending && <Spinner data-icon="inline-start" />}
+                  Перезапустить всё
                 </Button>
               )}
             </AlertDialogFooter>
@@ -468,6 +474,7 @@ export default function ConfigPage() {
         </AlertDialog>
       </div>
       <Button onClick={() => save.mutate(config)} disabled={save.isPending}>
+        {save.isPending && <Spinner data-icon="inline-start" />}
         {save.isPending ? 'Сохранение...' : 'Сохранить'}
       </Button>
     </div>
