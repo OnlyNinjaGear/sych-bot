@@ -119,8 +119,8 @@ export default function ProfilesPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Slider min={0} max={100} step={1} value={[profile.relationship ?? 50]} className="flex-1"
-                          onValueChange={([v]) => setReputation.mutate({ chatId, userId: uid, value: v })} />
+                        <Slider min={0} max={100} step={5} value={[profile.relationship ?? 50]} className="flex-1"
+                          onValueCommit={([v]) => setReputation.mutate({ chatId, userId: uid, value: v })} />
                         <span className="text-xs text-muted-foreground w-8 text-right">{profile.relationship ?? 50}</span>
                         <Button variant="ghost" size="sm" className="text-destructive text-xs shrink-0"
                           onClick={() => deleteUser.mutate({ chatId, userId: uid })}>✕</Button>

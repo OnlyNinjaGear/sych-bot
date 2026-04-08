@@ -11,11 +11,12 @@ const analysisBuffers = {};
 const chatAnalysisBuffers = {};
 const recentActiveUsers = [];
 
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
 // === ГЕНЕРАТОР ОТМАЗОК СЫЧА ===
 function getSychErrorReply(errText) {
     const r = settings.get('responses');
     const error = errText.toLowerCase();
-    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
     if (error.includes('prohibited') || error.includes('safety') || error.includes('blocked') || error.includes('policy'))
         return pick(r.errorCensored);
@@ -717,7 +718,7 @@ _ver: ${config.version}_
         if (laziness > 0 && Math.random() < laziness) {
             const pool = settings.get('lazyResponses') || [];
             if (pool.length > 0) {
-                const lazy = pool[Math.floor(Math.random() * pool.length)];
+                const lazy = pick(pool);
                 console.log(`[LAZY] Лень сработала → "${lazy}"`);
                 try { await bot.sendMessage(chatId, lazy, getReplyOptions(msg)); } catch (e) { }
                 addToHistory(chatId, "Тоха", lazy);
@@ -729,9 +730,9 @@ _ver: ${config.version}_
         if (text.length > 0) {
             const filterConfig = settings.get('smartFilter');
             if (filterConfig && filterConfig.enabled) {
-                const filterHistory = (chatHistory[chatId] || []).slice(-10)
+                const recentHistory = (chatHistory[chatId] || []).slice(-15)
                     .map(m => `${m.role}: ${m.text}`).join('\n');
-                const classification = await ai.classifyMessage(text, filterHistory, senderName);
+                const classification = await ai.classifyMessage(text, recentHistory, senderName);
 
                 if (classification.category !== 'normal') {
                     const catConfig = filterConfig.categories[classification.category];
@@ -740,12 +741,10 @@ _ver: ${config.version}_
 
                         if (catConfig.mode === 'reaction_only') {
                             const fallbackEmojis = ['🤷‍♂️','❤️','🤪','💔','🤭','🤯','👍','😱','🗿','🙏','💩','😐','🥱','✍️','😡','🔥','🤣','😍','👌','🤝','🤔','💋','🤡','👎','💅','💯','🌚','😘','🥰'];
-                            const hBlock = (chatHistory[chatId] || []).slice(-15)
-                                .map(m => `${m.role}: ${m.text}`).join('\n');
-                            ai.determineReaction(hBlock + `\nСообщение: ${text}`)
+                            ai.determineReaction(recentHistory + `\nСообщение: ${text}`)
                                 .then(async (emoji) => {
-                                    const pick = emoji || fallbackEmojis[Math.floor(Math.random() * fallbackEmojis.length)];
-                                    try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji: pick }] }); } catch (e) { }
+                                    const chosen = emoji || pick(fallbackEmojis);
+                                    try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji: chosen }] }); } catch (e) { }
                                 });
                             return;
                         }
@@ -753,7 +752,7 @@ _ver: ${config.version}_
                         if (catConfig.mode === 'silent') return;
 
                         if (catConfig.responses && catConfig.responses.length > 0) {
-                            const tmpl = catConfig.responses[Math.floor(Math.random() * catConfig.responses.length)];
+                            const tmpl = pick(catConfig.responses);
                             try { await bot.sendMessage(chatId, tmpl, getReplyOptions(msg)); } catch (e) { }
                             addToHistory(chatId, "Тоха", tmpl);
                             return;

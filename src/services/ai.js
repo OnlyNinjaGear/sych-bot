@@ -55,6 +55,14 @@ class AiService {
         console.log(`[AI] Ротация API ключа → #${this.openaiIdx + 1}`);
     }
 
+    stripThinking(text) {
+        return text.replace(/<thought>[\s\S]*?<\/thought>/g, '').replace(/^thought[\s\S]*?\n\n/i, '').trim();
+    }
+
+    handleApiError(e) {
+        if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
+    }
+
     watchEnvFile() {
         let debounceTimer = null;
         try {
@@ -376,11 +384,9 @@ class AiService {
                         temperature: settings.get('temperature') ?? 0.9,
                     });
                     storage.incrementStat('smart');
-                    return completion.choices[0].message.content
-                        .replace(/<thought>[\s\S]*?<\/thought>/g, '')
-                        .replace(/^thought[\s\S]*?\n\n/i, '').trim();
+                    return this.stripThinking(completion.choices[0].message.content);
                 } catch (e) {
-                    if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
+                    this.handleApiError(e);
                     console.error(`[API SMART FAIL] ${model}: ${e.message}`);
                 }
             }
@@ -430,14 +436,14 @@ class AiService {
             chatContext: chatProfile
         });
 
-        return this.executeNativeWithRetry(async () => {
-            let promptParts = [];
-            if (imageBuffer) promptParts.push({ inlineData: { mimeType: mimeType, data: imageBuffer.toString("base64") } });
-            promptParts.push({ text: fullPromptText });
+        // Собираем prompt и mood ДО retry loop чтобы не менять настроение при ретрае
+        const moodPrompt = prompts.system(moodContext);
+        const promptParts = [];
+        if (imageBuffer) promptParts.push({ inlineData: { mimeType: mimeType, data: imageBuffer.toString("base64") } });
+        promptParts.push({ text: fullPromptText });
 
-            // Создаём модель per-call с mood-aware system prompt
+        return this.executeNativeWithRetry(async () => {
             const genAI = new GoogleGenerativeAI(this.keys[this.keyIndex]);
-            const moodPrompt = prompts.system(moodContext);
             const nativeModels = settings.get('nativeModels');
             const modelName = imageBuffer ? settings.get('visionModel') : (nativeModels[this.modelIndex] || nativeModels[0]);
             const modelToUse = genAI.getGenerativeModel({
@@ -478,13 +484,12 @@ class AiService {
                     if (!model.includes('gemma')) opts.response_format = { type: "json_object" };
                     const completion = await this.openai.chat.completions.create(opts);
                     storage.incrementStat('logic');
-                    let text = completion.choices[0].message.content
-                        .replace(/<thought>[\s\S]*?<\/thought>/g, '').trim();
+                    let text = this.stripThinking(completion.choices[0].message.content);
                     const first = text.indexOf('{'), last = text.lastIndexOf('}');
                     if (first !== -1 && last !== -1) text = text.substring(first, last + 1);
                     return JSON.parse(text);
                 } catch (e) {
-                    if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
+                    this.handleApiError(e);
                     console.error(`[LOGIC FAIL] ${model}: ${e.message}`);
                 }
             }
@@ -512,10 +517,9 @@ class AiService {
                         messages: [{ role: "user", content: promptText }]
                     });
                     storage.incrementStat('logic');
-                    return completion.choices[0].message.content
-                        .replace(/<thought>[\s\S]*?<\/thought>/g, '').trim();
+                    return this.stripThinking(completion.choices[0].message.content);
                 } catch (e) {
-                    if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
+                    this.handleApiError(e);
                     console.error(`[LOGIC TEXT FAIL] ${model}: ${e.message}`);
                 }
             }
