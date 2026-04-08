@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Field, FieldLabel, FieldDescription } from '@/components/ui/field'
 import { api } from '@/lib/api'
@@ -18,8 +19,24 @@ import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Link } from 'react-router-dom'
 
+interface MoodExample { user: string; bot: string }
+interface Mood {
+  enabled: boolean; weight: number; label: string; prompt: string
+  examples: MoodExample[]; antiExamples: string[]
+}
+interface ContextModifier {
+  enabled: boolean; prompt: string; condition: string
+  threshold?: number; timeFrom?: number; timeTo?: number
+}
+interface MoodSystem {
+  enabled: boolean; debug: boolean; intelligence: number; base: string
+  moods: Record<string, Mood>
+  contextModifiers: Record<string, ContextModifier>
+}
+
 interface BotSettings {
   systemPrompt: string
+  moodSystem?: MoodSystem
   mainModel: string
   mainModelFallbacks: string[]
   logicModel: string
@@ -176,34 +193,141 @@ export default function BotSettingsPage() {
       </div>
 
       <div className='grid grid-cols-5 gap-6'>
-        {/* System Prompt */}
+        {/* System Prompt / Mood System */}
         <div className='col-span-2'>
-          <Card className='h-full'>
+          <Card className='h-full flex flex-col'>
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                Системный промпт-характер
-                {isCustomPrompt
-                  ? <Badge variant="default" className="text-xs font-normal">Кастомный</Badge>
-                  : <Badge variant="secondary" className="text-xs font-normal">Дефолтный</Badge>
-                }
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Характер</CardTitle>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <span className="text-xs text-muted-foreground">{s.moodSystem?.enabled ? 'Мультипромпт' : 'Один промпт'}</span>
+                  <Switch checked={s.moodSystem?.enabled ?? false} onCheckedChange={v => {
+                    const ms = s.moodSystem || { enabled: false, debug: true, intelligence: 50, base: '', moods: {}, contextModifiers: {} }
+                    set('moodSystem', { ...ms, enabled: v })
+                  }} />
+                </label>
+              </div>
               <CardDescription>
-                Пусто = используется встроенный дефолтный промпт. Отредактируй или загрузи дефолт как основу.
+                {s.moodSystem?.enabled
+                  ? 'Промпт собирается по кусочкам: база + настроение + контекст + примеры'
+                  : 'Один системный промпт для всех ситуаций'}
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <Textarea
-                value={s.systemPrompt}
-                onChange={e => set('systemPrompt', e.target.value)}
-                placeholder={DEFAULT_SYSTEM_PROMPT}
-                className={cn("min-h-0 max-h-[68dvh]", !isCustomPrompt ? "h-full" : "")}
-              />
-              <div className="flex gap-2">
-                <Button variant="secondary" className='flex-1 rounded-lg' size="lg" onClick={() => set('systemPrompt', DEFAULT_SYSTEM_PROMPT)}>
-                  Загрузить стандартный
-                </Button>
-                <RefreshButton label='Сбросить к дефолту' disabled={!isCustomPrompt} variant="outline" className='rounded-lg hover:scale-100!' size="lg" onClick={() => set('systemPrompt', '')} />
-              </div>
+            <CardContent className="flex flex-col gap-3 flex-1 overflow-y-auto">
+              {s.moodSystem?.enabled ? (<>
+                {/* BASE prompt */}
+                <Field>
+                  <FieldLabel>База (форматирование, запреты)</FieldLabel>
+                  <Textarea value={s.moodSystem.base} onChange={e => set('moodSystem', { ...s.moodSystem!, base: e.target.value })} rows={8} className="font-mono text-xs" />
+                </Field>
+                <Separator />
+                {/* Intelligence */}
+                <NumberInput label={`Интеллект — ${s.moodSystem.intelligence ?? 50} (±15 рандом)`} hint="0=тупой, 50=норма, 100=гений" value={s.moodSystem.intelligence ?? 50} onChange={v => set('moodSystem', { ...s.moodSystem!, intelligence: v })} min={0} max={100} />
+                <Separator />
+                {/* Moods */}
+                <FieldLabel>Настроения</FieldLabel>
+                {Object.entries(s.moodSystem.moods || {}).map(([id, mood]) => (
+                  <div key={id} className="border rounded-lg p-3 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <Switch checked={mood.enabled} onCheckedChange={v => {
+                        const moods = { ...s.moodSystem!.moods, [id]: { ...mood, enabled: v } }
+                        set('moodSystem', { ...s.moodSystem!, moods })
+                      }} />
+                      <Input value={mood.label} className="flex-1 text-sm font-semibold" onChange={e => {
+                        const moods = { ...s.moodSystem!.moods, [id]: { ...mood, label: e.target.value } }
+                        set('moodSystem', { ...s.moodSystem!, moods })
+                      }} />
+                      <span className="text-xs text-muted-foreground w-8 text-right">{mood.weight}%</span>
+                      <Slider min={0} max={100} step={1} value={[mood.weight]} className="w-24" onValueChange={([v]) => {
+                        const moods = { ...s.moodSystem!.moods, [id]: { ...mood, weight: v } }
+                        set('moodSystem', { ...s.moodSystem!, moods })
+                      }} />
+                      <Button variant="ghost" size="sm" className="text-destructive shrink-0" onClick={() => {
+                        const moods = { ...s.moodSystem!.moods }; delete moods[id]
+                        set('moodSystem', { ...s.moodSystem!, moods })
+                      }}>✕</Button>
+                    </div>
+                    <Textarea value={mood.prompt} rows={3} className="text-xs font-mono" placeholder="промпт настроения" onChange={e => {
+                      const moods = { ...s.moodSystem!.moods, [id]: { ...mood, prompt: e.target.value } }
+                      set('moodSystem', { ...s.moodSystem!, moods })
+                    }} />
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground">Примеры ({mood.examples?.length || 0}) и антипримеры ({mood.antiExamples?.length || 0})</summary>
+                      <div className="mt-2 flex flex-col gap-1">
+                        {(mood.examples || []).map((ex, i) => (
+                          <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-1">
+                            <Input value={ex.user} placeholder="юзер" className="text-xs" onChange={e => {
+                              const examples = [...(mood.examples || [])]; examples[i] = { ...ex, user: e.target.value }
+                              const moods = { ...s.moodSystem!.moods, [id]: { ...mood, examples } }
+                              set('moodSystem', { ...s.moodSystem!, moods })
+                            }} />
+                            <Input value={ex.bot} placeholder="бот" className="text-xs" onChange={e => {
+                              const examples = [...(mood.examples || [])]; examples[i] = { ...ex, bot: e.target.value }
+                              const moods = { ...s.moodSystem!.moods, [id]: { ...mood, examples } }
+                              set('moodSystem', { ...s.moodSystem!, moods })
+                            }} />
+                            <Button variant="ghost" size="sm" onClick={() => {
+                              const examples = (mood.examples || []).filter((_, j) => j !== i)
+                              const moods = { ...s.moodSystem!.moods, [id]: { ...mood, examples } }
+                              set('moodSystem', { ...s.moodSystem!, moods })
+                            }}>✕</Button>
+                          </div>
+                        ))}
+                        <Button variant="outline" size="sm" className="self-start" onClick={() => {
+                          const examples = [...(mood.examples || []), { user: '', bot: '' }]
+                          const moods = { ...s.moodSystem!.moods, [id]: { ...mood, examples } }
+                          set('moodSystem', { ...s.moodSystem!, moods })
+                        }}>+ Пример</Button>
+                        <Textarea value={(mood.antiExamples || []).join('\n')} rows={2} className="text-xs mt-2" placeholder="Антипримеры (каждая строка = плохой ответ)" onChange={e => {
+                          const antiExamples = e.target.value.split('\n')
+                          const moods = { ...s.moodSystem!.moods, [id]: { ...mood, antiExamples } }
+                          set('moodSystem', { ...s.moodSystem!, moods })
+                        }} />
+                      </div>
+                    </details>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" className="self-start" onClick={() => {
+                  const key = `mood_${Date.now()}`
+                  const moods = { ...s.moodSystem!.moods, [key]: { enabled: true, weight: 10, label: 'Новое', prompt: '', examples: [], antiExamples: [] } }
+                  set('moodSystem', { ...s.moodSystem!, moods })
+                }}>+ Добавить настроение</Button>
+                <Separator />
+                {/* Context Modifiers */}
+                <FieldLabel>Контекстные модификаторы</FieldLabel>
+                {Object.entries(s.moodSystem.contextModifiers || {}).map(([id, mod]) => (
+                  <div key={id} className="flex items-start gap-2 text-xs">
+                    <Switch checked={mod.enabled} onCheckedChange={v => {
+                      const cm = { ...s.moodSystem!.contextModifiers, [id]: { ...mod, enabled: v } }
+                      set('moodSystem', { ...s.moodSystem!, contextModifiers: cm })
+                    }} />
+                    <div className="flex-1">
+                      <p className="font-medium">{id}</p>
+                      <Input value={mod.prompt} className="text-xs mt-1" onChange={e => {
+                        const cm = { ...s.moodSystem!.contextModifiers, [id]: { ...mod, prompt: e.target.value } }
+                        set('moodSystem', { ...s.moodSystem!, contextModifiers: cm })
+                      }} />
+                    </div>
+                  </div>
+                ))}
+                <label className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                  <Switch checked={s.moodSystem.debug ?? false} onCheckedChange={v => set('moodSystem', { ...s.moodSystem!, debug: v })} />
+                  Debug логирование (в консоль)
+                </label>
+              </>) : (<>
+                <Textarea
+                  value={s.systemPrompt}
+                  onChange={e => set('systemPrompt', e.target.value)}
+                  placeholder={DEFAULT_SYSTEM_PROMPT}
+                  className={cn("min-h-0 max-h-[68dvh] flex-1", !isCustomPrompt ? "h-full" : "")}
+                />
+                <div className="flex gap-2">
+                  <Button variant="secondary" className='flex-1 rounded-lg' size="lg" onClick={() => set('systemPrompt', DEFAULT_SYSTEM_PROMPT)}>
+                    Загрузить стандартный
+                  </Button>
+                  <RefreshButton label='Сбросить к дефолту' disabled={!isCustomPrompt} variant="outline" className='rounded-lg hover:scale-100!' size="lg" onClick={() => set('systemPrompt', '')} />
+                </div>
+              </>)}
             </CardContent>
           </Card>
         </div>

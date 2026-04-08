@@ -5,10 +5,10 @@ const config = require('../config');
 const settings = require('../settings');
 const axios = require('axios');
 const { exec } = require('child_process');
+const prompts = require('./prompts');
 const chatHistory = {};
 const analysisBuffers = {};
-const chatAnalysisBuffers = {}; // Буфер для анализа профиля чата
-// Храним 10 последних активных юзеров для удобного бана
+const chatAnalysisBuffers = {};
 const recentActiveUsers = [];
 
 // === ГЕНЕРАТОР ОТМАЗОК СЫЧА ===
@@ -755,6 +755,17 @@ _ver: ${config.version}_
             // Вытаскиваем текст реплая для контекста
             const replyText = msg.reply_to_message ? (msg.reply_to_message.text || msg.reply_to_message.caption || "") : "";
 
+            // Собираем контекст для системы настроений
+            const recentMsgs = (chatHistory[chatId] || []).slice(-5);
+            const profCount = recentMsgs.filter(m => prompts.PROFANITY_RE.test(m.text)).length;
+            const moodContext = {
+                isDirectlyCalled,
+                reputation: userProfile ? userProfile.relationship : 50,
+                hasProfanity: prompts.PROFANITY_RE.test(text),
+                profanityLevel: profCount,
+                currentHour: parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Yekaterinburg', hour: 'numeric', hour12: false })),
+            };
+
             aiResponse = await ai.getResponse(
                 chatHistory[chatId],
                 { sender: senderName, text: text, replyText: replyText },
@@ -763,7 +774,8 @@ _ver: ${config.version}_
                 instruction,
                 userProfile,
                 !isDirectlyCalled,
-                chatProfile // <--- Передаём профиль чата
+                chatProfile,
+                moodContext
             );
 
             console.log(`[DEBUG] 2. Ответ от AI получен! Длина: ${aiResponse ? aiResponse.length : "PUSTO"}`);

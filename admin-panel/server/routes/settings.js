@@ -100,6 +100,28 @@ router.put('/', (req, res) => {
     updated.aiProvider = ['google', 'openrouter', 'custom'].includes(updated.aiProvider)
       ? updated.aiProvider
       : 'openrouter';
+    // Validate moodSystem
+    if (updated.moodSystem && typeof updated.moodSystem === 'object') {
+      updated.moodSystem.enabled = Boolean(updated.moodSystem.enabled);
+      updated.moodSystem.debug = Boolean(updated.moodSystem.debug);
+      updated.moodSystem.base = String(updated.moodSystem.base || '').substring(0, 3000);
+      updated.moodSystem.intelligence = Math.min(100, Math.max(0, parseInt(updated.moodSystem.intelligence) || 50));
+      if (typeof updated.moodSystem.moods === 'object') {
+        for (const [key, mood] of Object.entries(updated.moodSystem.moods)) {
+          if (typeof mood !== 'object') { delete updated.moodSystem.moods[key]; continue; }
+          mood.enabled = Boolean(mood.enabled); mood.weight = Math.min(100, Math.max(0, parseInt(mood.weight) || 10));
+          mood.label = String(mood.label || key).substring(0, 50); mood.prompt = String(mood.prompt || '').substring(0, 2000);
+          mood.examples = Array.isArray(mood.examples) ? mood.examples.filter(e => e?.user && e?.bot).slice(0, 10).map(e => ({ user: String(e.user).substring(0, 200), bot: String(e.bot).substring(0, 500) })) : [];
+          mood.antiExamples = Array.isArray(mood.antiExamples) ? mood.antiExamples.filter(a => typeof a === 'string' && a.trim()).slice(0, 10) : [];
+        }
+      }
+      if (typeof updated.moodSystem.contextModifiers === 'object') {
+        for (const [key, mod] of Object.entries(updated.moodSystem.contextModifiers)) {
+          if (typeof mod !== 'object') { delete updated.moodSystem.contextModifiers[key]; continue; }
+          mod.enabled = Boolean(mod.enabled); mod.prompt = String(mod.prompt || '').substring(0, 500);
+        }
+      }
+    }
     // Validate responses — merge with defaults, ensure arrays stay arrays
     const r = typeof updated.responses === 'object' && updated.responses ? updated.responses : {};
     const arrayKeys = ['errorCensored', 'errorOverloaded', 'errorQuota', 'errorLarge'];

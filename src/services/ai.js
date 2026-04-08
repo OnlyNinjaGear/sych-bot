@@ -295,7 +295,7 @@ class AiService {
     }
 
     // === ОСНОВНОЙ ОТВЕТ ===
-    async getResponse(history, currentMessage, imageBuffer = null, mimeType = "image/jpeg", userInstruction = "", userProfile = null, isSpontaneous = false, chatProfile = null) {
+    async getResponse(history, currentMessage, imageBuffer = null, mimeType = "image/jpeg", userInstruction = "", userProfile = null, isSpontaneous = false, chatProfile = null, moodContext = {}) {
         this.resetStatsIfNeeded();
         console.log(`[DEBUG AI] getResponse вызван.`);
 
@@ -358,7 +358,7 @@ class AiService {
         // 3. ЗАПРОС К SMART МОДЕЛИ (API) — перебираем цепочку моделей
         if (this.openai) {
             const modelChain = [settings.get('mainModel'), ...settings.get('mainModelFallbacks')].filter(Boolean);
-            const apiMessages = [{ role: "system", content: prompts.system() }, { role: "user", content: [] }];
+            const apiMessages = [{ role: "system", content: prompts.system(moodContext) }, { role: "user", content: [] }];
             apiMessages[1].content.push({ type: "text", text: fullPromptText });
             if (imageBuffer) {
                 apiMessages[1].content.push({
@@ -387,11 +387,11 @@ class AiService {
         }
 
         // 4. FALLBACK на Google Native — передаём searchResultText если есть
-        return this.generateViaNative(history, currentMessage, imageBuffer, mimeType, userInstruction, userProfile, isSpontaneous, chatProfile, searchResultText);
+        return this.generateViaNative(history, currentMessage, imageBuffer, mimeType, userInstruction, userProfile, isSpontaneous, chatProfile, searchResultText, moodContext);
     }
 
     // Helper для Native вызова (чтобы не дублировать код)
-    async generateViaNative(history, currentMessage, imageBuffer, mimeType, userInstruction, userProfile, isSpontaneous, chatProfile = null, searchResultText = "") {
+    async generateViaNative(history, currentMessage, imageBuffer, mimeType, userInstruction, userProfile, isSpontaneous, chatProfile = null, searchResultText = "", moodContext = {}) {
         const relevantHistory = history.slice(-20);
         const contextStr = relevantHistory.map(m => `${m.role}: ${m.text}`).join('\n');
 
@@ -435,10 +435,22 @@ class AiService {
             if (imageBuffer) promptParts.push({ inlineData: { mimeType: mimeType, data: imageBuffer.toString("base64") } });
             promptParts.push({ text: fullPromptText });
 
-            // Для изображений используем vision-модель, для текста — основную
-            const modelToUse = imageBuffer
-                ? new GoogleGenerativeAI(this.keys[this.keyIndex]).getGenerativeModel({ model: settings.get('visionModel') })
-                : this.nativeModel;
+            // Создаём модель per-call с mood-aware system prompt
+            const genAI = new GoogleGenerativeAI(this.keys[this.keyIndex]);
+            const moodPrompt = prompts.system(moodContext);
+            const nativeModels = settings.get('nativeModels');
+            const modelName = imageBuffer ? settings.get('visionModel') : (nativeModels[this.modelIndex] || nativeModels[0]);
+            const modelToUse = genAI.getGenerativeModel({
+                model: modelName,
+                systemInstruction: moodPrompt,
+                safetySettings: [
+                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                ],
+                tools: imageBuffer ? undefined : [{ googleSearch: {} }],
+            });
 
             const result = await modelToUse.generateContent({
                 contents: [{ role: 'user', parts: promptParts }],

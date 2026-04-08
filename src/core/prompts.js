@@ -2,10 +2,93 @@ const config = require('../config');
 const settings = require('../settings');
 const DEFAULT_SYSTEM_PROMPT = require('./default-prompt');
 
+// === Детекция мата ===
+const PROFANITY_RE = /(?:бля|хуй|хуе|хуя|пизд|ебат|ёб|еб[ау]|нахуй|пох|сук[аи]|мудак|дебил|пидор|залуп|ебан)/i;
+
 module.exports = {
    // === СИСТЕМНАЯ РОЛЬ ===
-   system: () => settings.get('systemPrompt') || DEFAULT_SYSTEM_PROMPT,
+   system: (ctx = {}) => {
+       const ms = settings.get('moodSystem');
+       if (ms && ms.enabled) return module.exports._assembleMood(ctx);
+       return settings.get('systemPrompt') || DEFAULT_SYSTEM_PROMPT;
+   },
    DEFAULT_SYSTEM_PROMPT,
+
+   // === СБОРКА ПРОМПТА ПО НАСТРОЕНИЮ ===
+   _assembleMood: (ctx) => {
+       const ms = settings.get('moodSystem');
+       const parts = [ms.base];
+
+       // 1. Выбор настроения (взвешенный рандом с модификаторами)
+       const enabled = Object.entries(ms.moods || {}).filter(([, m]) => m.enabled);
+       if (enabled.length === 0) return DEFAULT_SYSTEM_PROMPT;
+
+       const w = {};
+       for (const [id, m] of enabled) w[id] = m.weight;
+
+       // Динамические модификаторы весов
+       if (ctx.isDirectlyCalled) {
+           if (w.lazy) w.lazy *= 0.1;
+           if (w.aggressive) w.aggressive *= 0.5;
+       }
+       if (ctx.profanityLevel >= 2) {
+           if (w.aggressive) w.aggressive *= 2;
+           if (w.vulgar) w.vulgar *= 1.5;
+           if (w.pedant) w.pedant *= 0.3;
+       }
+
+       const total = Object.values(w).reduce((a, b) => a + b, 0);
+       let roll = Math.random() * total;
+       let moodId = enabled[0][0];
+       for (const [id] of enabled) {
+           roll -= (w[id] || 0);
+           if (roll <= 0) { moodId = id; break; }
+       }
+       const mood = ms.moods[moodId];
+       parts.push(mood.prompt);
+
+       // 2. Контекстные модификаторы
+       const mods = [];
+       const hour = ctx.currentHour ?? new Date().getHours();
+       for (const [, mod] of Object.entries(ms.contextModifiers || {})) {
+           if (!mod.enabled) continue;
+           if (mod.condition === 'reputation_below' && ctx.reputation !== undefined && ctx.reputation < (mod.threshold || 20)) mods.push(mod.prompt);
+           else if (mod.condition === 'reputation_above' && ctx.reputation !== undefined && ctx.reputation > (mod.threshold || 80)) mods.push(mod.prompt);
+           else if (mod.condition === 'message_has_profanity' && ctx.hasProfanity) mods.push(mod.prompt);
+           else if (mod.condition === 'bot_mentioned' && ctx.isDirectlyCalled) mods.push(mod.prompt);
+           else if (mod.condition === 'time_range' && hour >= (mod.timeFrom || 0) && hour < (mod.timeTo || 6)) mods.push(mod.prompt);
+       }
+       if (mods.length) parts.push(mods.join('. '));
+
+       // 3. Интеллект (с рандомом ±15)
+       const baseIQ = ms.intelligence ?? 50;
+       const iq = Math.max(0, Math.min(100, baseIQ + Math.floor((Math.random() - 0.5) * 30)));
+       if (iq < 25) parts.push('ты сейчас максимально тупой. простые слова, не понимаешь сложных вопросов, путаешь факты, отвечаешь невпопад');
+       else if (iq < 40) parts.push('ты сейчас туповат. отвечаешь поверхностно, не вникаешь, можешь ляпнуть глупость');
+       else if (iq > 75) parts.push('ты сейчас на пике. отвечаешь умно и по делу, можешь блеснуть знаниями');
+       else if (iq > 90) parts.push('ты сейчас гений. глубокие ответы, неожиданные связи между темами, но всё равно кратко');
+       // 40-75 = нормальный, ничего не добавляем
+
+       // 4. Примеры
+       if (mood.examples && mood.examples.length > 0) {
+           let ex = 'ПРИМЕРЫ ТВОИХ ОТВЕТОВ:\n';
+           for (const e of mood.examples) ex += `юзер: ${e.user}\nты: ${e.bot}\n\n`;
+           parts.push(ex);
+       }
+
+       // 5. Негативные примеры
+       if (mood.antiExamples && mood.antiExamples.length > 0) {
+           let anti = 'ТАК ОТВЕЧАТЬ ЗАПРЕЩЕНО:\n';
+           for (const a of mood.antiExamples) anti += `НЕПРАВИЛЬНО: ${a}\n`;
+           parts.push(anti);
+       }
+
+       if (ms.debug) console.log(`[MOOD] ${moodId} | IQ=${iq} | mods=${mods.length}`);
+
+       return parts.join('\n\n');
+   },
+
+   PROFANITY_RE,
 
    // === ОСНОВНОЙ ЧАТ ===
    mainChat: (params) => `
