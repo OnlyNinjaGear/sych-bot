@@ -333,7 +333,7 @@ class AiService {
         if (userInstruction) personalInfo += `\n!!! СПЕЦ-ИНСТРУКЦИЯ !!!\n${userInstruction}\n`;
 
         if (searchResultText) {
-            personalInfo += `\n!!! ДАННЫЕ ИЗ ПОИСКА (${config.searchProvider.toUpperCase()}) !!!\n${searchResultText}\nИНСТРУКЦИЯ: Ответь, используя эти факты. УКАЖИ ССЫЛКИ.\n`;
+            personalInfo += `\n!!! ДАННЫЕ ИЗ ПОИСКА (${config.searchProvider.toUpperCase()}) !!!\n${searchResultText}\nИНСТРУКЦИЯ: Используй эти данные ТОЛЬКО если нужен конкретный факт. НЕ пересказывай всё. НЕ вставляй ссылки если не просили.\n`;
         }
 
         if (userProfile) {
@@ -408,7 +408,7 @@ class AiService {
         }
 
         if (searchResultText) {
-            personalInfo += `\n!!! ДАННЫЕ ИЗ ПОИСКА (TAVILY) !!!\n${searchResultText}\nИНСТРУКЦИЯ: Ответь, используя эти факты. УКАЖИ ССЫЛКИ.\n`;
+            personalInfo += `\n!!! ДАННЫЕ ИЗ ПОИСКА (TAVILY) !!!\n${searchResultText}\nИНСТРУКЦИЯ: Используй эти данные ТОЛЬКО если нужен конкретный факт. НЕ пересказывай всё. НЕ вставляй ссылки если не просили.\n`;
         }
 
         if (userProfile) {
@@ -445,14 +445,7 @@ class AiService {
                 generationConfig: { maxOutputTokens: 2500, temperature: 0.9 }
             });
 
-            let text = result.response.text();
-            if (result.response.candidates[0].groundingMetadata?.groundingChunks) {
-                const links = result.response.candidates[0].groundingMetadata.groundingChunks
-                    .filter(c => c.web?.uri).map(c => `[${c.web.title || "Источник"}](${c.web.uri})`);
-                const unique = [...new Set(links)].slice(0, 3);
-                if (unique.length > 0) text += "\n\nНашел тут: " + unique.join(" • ");
-            }
-            return text;
+            return result.response.text();
         });
     }
 
