@@ -57,11 +57,23 @@ const defaults = {
       reaction_only: { label: 'Только реакция', description: 'Достаточно поставить эмодзи, текстом отвечать не надо', responses: [], mode: 'reaction_only' },
     },
   },
+  moodSystem: require(require('path').join(__dirname, '../../../src/settings')).get('moodSystem'),
 };
 
 function read() {
   try {
-    return { ...defaults, ...JSON.parse(fs.readFileSync(BOT_SETTINGS_PATH, 'utf-8')) };
+    const saved = JSON.parse(fs.readFileSync(BOT_SETTINGS_PATH, 'utf-8'));
+    const merged = { ...defaults, ...saved };
+    // Deep-merge для вложенных объектов — чтобы дефолтные настроения не терялись
+    if (saved.moodSystem && typeof saved.moodSystem === 'object') {
+      merged.moodSystem = {
+        ...defaults.moodSystem,
+        ...saved.moodSystem,
+        moods: { ...(defaults.moodSystem?.moods || {}), ...(saved.moodSystem.moods || {}) },
+        contextModifiers: { ...(defaults.moodSystem?.contextModifiers || {}), ...(saved.moodSystem.contextModifiers || {}) },
+      };
+    }
+    return merged;
   } catch {
     return { ...defaults };
   }
