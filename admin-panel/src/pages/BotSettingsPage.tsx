@@ -139,6 +139,11 @@ export default function BotSettingsPage() {
     queryFn: () => api.get('/settings'),
   })
 
+  const { data: configData } = useQuery<{ ai: { AI_PROVIDER: string } }>({
+    queryKey: ['config'],
+    queryFn: () => api.get('/config'),
+  })
+
   useEffect(() => { if (data) setS(structuredClone(data)) }, [data])
 
   const save = useMutation({
@@ -156,7 +161,7 @@ export default function BotSettingsPage() {
     setS(prev => prev ? { ...prev, [key]: val } : prev)
 
   const isCustomPrompt = s.systemPrompt.trim() !== ''
-  const provider = s.aiProvider ?? 'openrouter'
+  const provider = (configData?.ai?.AI_PROVIDER ?? s.aiProvider ?? 'openrouter') as ProviderId
   const apiModels = PROVIDERS[provider]?.models ?? PROVIDERS.openrouter.models
 
   return (
