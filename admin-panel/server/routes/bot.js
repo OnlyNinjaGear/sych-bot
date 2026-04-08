@@ -10,6 +10,13 @@ const DEV_PID_FILE = path.join(__dirname, '../.dev-pid');
 // Dev process — PID сохраняем в файл, чтобы пережить рестарт сервера
 let devProc = null;
 let devStartedAt = null;
+const devLogs = []; // кольцевой буфер последних 500 строк
+const MAX_LOGS = 500;
+
+function pushLog(line) {
+  devLogs.push(line);
+  if (devLogs.length > MAX_LOGS) devLogs.shift();
+}
 
 function savePid(pid, startedAt) {
   try { require('fs').writeFileSync(DEV_PID_FILE, JSON.stringify({ pid, startedAt })); } catch {}
@@ -97,14 +104,29 @@ router.get('/dev-status', (req, res) => {
   res.json({ running: devProc !== null, pid: devProc?.pid ?? null, startedAt: devStartedAt });
 });
 
+router.get('/dev-logs', (req, res) => {
+  const n = parseInt(req.query.n) || 200;
+  res.json({ lines: devLogs.slice(-n) });
+});
+
 router.post('/dev-start', (req, res) => {
   if (devProc) return res.status(400).json({ error: 'Уже запущен' });
+  devLogs.length = 0;
   const proc = spawn('npm', ['start'], { cwd: BOT_ROOT, stdio: 'pipe' });
   devStartedAt = Date.now();
   devProc = proc;
   savePid(proc.pid, devStartedAt);
-  proc.on('exit', () => { if (devProc === proc) { devProc = null; devStartedAt = null; clearPid(); } });
-  proc.on('error', () => { if (devProc === proc) { devProc = null; devStartedAt = null; clearPid(); } });
+  const onLine = (data) => data.toString().split('\n').filter(Boolean).forEach(pushLog);
+  proc.stdout.on('data', onLine);
+  proc.stderr.on('data', onLine);
+  proc.on('exit', (code) => {
+    if (devProc === proc) { devProc = null; devStartedAt = null; clearPid(); }
+    pushLog(`\n--- процесс завершён (код ${code}) ---`);
+  });
+  proc.on('error', (e) => {
+    if (devProc === proc) { devProc = null; devStartedAt = null; clearPid(); }
+    pushLog(`--- ошибка запуска: ${e.message} ---`);
+  });
   res.json({ ok: true, pid: proc.pid });
 });
 

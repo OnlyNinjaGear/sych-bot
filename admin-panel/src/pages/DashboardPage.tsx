@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -100,6 +101,18 @@ export default function DashboardPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const { data: devLogs } = useQuery<{ lines: string[] }>({
+    queryKey: ['dev-logs'],
+    queryFn: () => api.get('/bot/dev-logs'),
+    refetchInterval: devStatus?.running ? 1500 : false,
+    enabled: true,
+  })
+
+  const logsRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    if (logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight
+  }, [devLogs?.lines.length])
+
   const isOnline = status?.status === 'online'
   const isTogglePending = start.isPending || stop.isPending
 
@@ -167,6 +180,26 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Dev logs */}
+      {(devStatus?.running || (devLogs?.lines.length ?? 0) > 0) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              Логи бота (dev)
+              {devStatus?.running && <Badge variant="default">● live</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre
+              ref={logsRef}
+              className="h-72 overflow-y-auto rounded-lg bg-black text-green-400 text-xs font-mono p-3 whitespace-pre-wrap break-all"
+            >
+              {devLogs?.lines.join('\n') || 'нет вывода'}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats today */}
       <div className="grid grid-cols-3 gap-4">
