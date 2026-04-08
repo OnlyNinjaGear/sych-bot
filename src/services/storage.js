@@ -473,13 +473,12 @@ class StorageService {
             const oldScore = current.relationship || 50;
             const delta = newScore - oldScore;
 
-            // Ограничиваем изменения: +1..+3 за позитив, -5..-10 за негатив
+            // Ограничиваем изменения: +1..+3 за позитив, -10 минимум за негатив
             let clampedDelta = delta;
             if (delta > 0) {
               clampedDelta = Math.min(delta, 3); // Максимум +3
             } else if (delta < 0) {
-              clampedDelta = Math.max(delta, -10); // Максимум -10
-              if (clampedDelta > -5 && clampedDelta < 0) clampedDelta = -5; // Минимум -5 если негатив
+              clampedDelta = Math.max(delta, -10); // Не ниже -10
             }
 
             // Применяем изменение с ограничением 0-100
