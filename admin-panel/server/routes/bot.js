@@ -1,10 +1,14 @@
 const router = require('express').Router();
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const path = require('path');
 const { BOT_ROOT } = require('../utils/paths');
 
 const BOT_NAME = 'toha-bot';
 const BOT_SCRIPT = path.join(BOT_ROOT, 'src/index.js');
+
+// Dev process (npm start) — живёт в памяти сервера
+let devProc = null;
+let devStartedAt = null;
 
 function pm2(cmd) {
   return new Promise((resolve, reject) => {
@@ -64,6 +68,27 @@ router.post('/stop', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+router.get('/dev-status', (req, res) => {
+  res.json({ running: devProc !== null, pid: devProc?.pid ?? null, startedAt: devStartedAt });
+});
+
+router.post('/dev-start', (req, res) => {
+  if (devProc) return res.status(400).json({ error: 'Уже запущен' });
+  devProc = spawn('npm', ['start'], { cwd: BOT_ROOT, stdio: 'pipe' });
+  devStartedAt = Date.now();
+  devProc.on('exit', () => { devProc = null; devStartedAt = null; });
+  devProc.on('error', () => { devProc = null; devStartedAt = null; });
+  res.json({ ok: true, pid: devProc.pid });
+});
+
+router.post('/dev-stop', (req, res) => {
+  if (!devProc) return res.status(400).json({ error: 'Не запущен' });
+  devProc.kill();
+  devProc = null;
+  devStartedAt = null;
+  res.json({ ok: true });
 });
 
 router.post('/server-restart', (req, res) => {

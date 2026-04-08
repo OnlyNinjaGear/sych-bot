@@ -37,6 +37,12 @@ function formatMb(bytes?: number) {
   return `${(bytes / 1024 / 1024).toFixed(0)} МБ`
 }
 
+interface DevStatus {
+  running: boolean
+  pid: number | null
+  startedAt: number | null
+}
+
 export default function DashboardPage() {
   const qc = useQueryClient()
 
@@ -44,6 +50,12 @@ export default function DashboardPage() {
     queryKey: ['bot-status'],
     queryFn: () => api.get('/bot/status'),
     refetchInterval: 5000,
+  })
+
+  const { data: devStatus } = useQuery<DevStatus>({
+    queryKey: ['dev-status'],
+    queryFn: () => api.get('/bot/dev-status'),
+    refetchInterval: 3000,
   })
 
   const { data: stats, isLoading: statsLoading } = useQuery<Stats>({
@@ -73,6 +85,18 @@ export default function DashboardPage() {
   const restartServer = useMutation({
     mutationFn: () => api.post('/bot/server-restart'),
     onSuccess: () => toast.success('Сервер панели перезапускается...'),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const devStart = useMutation({
+    mutationFn: () => api.post('/bot/dev-start'),
+    onSuccess: () => { toast.success('Бот запущен (dev)'); qc.invalidateQueries({ queryKey: ['dev-status'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const devStop = useMutation({
+    mutationFn: () => api.post('/bot/dev-stop'),
+    onSuccess: () => { toast.success('Бот остановлен (dev)'); qc.invalidateQueries({ queryKey: ['dev-status'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -124,6 +148,32 @@ export default function DashboardPage() {
               {restartServer.isPending ? 'Перезапускаю сервер панели...' : 'Перезапустить сервер панели'}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Dev mode */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            Dev режим
+            <Badge variant={devStatus?.running ? 'default' : 'secondary'}>
+              {devStatus?.running ? `● PID ${devStatus.pid}` : '○ Не запущен'}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center gap-4">
+          <Switch
+            checked={devStatus?.running ?? false}
+            disabled={devStart.isPending || devStop.isPending}
+            onCheckedChange={checked => checked ? devStart.mutate() : devStop.mutate()}
+          />
+          <span className="text-sm text-muted-foreground">
+            {devStart.isPending || devStop.isPending
+              ? 'Подождите...'
+              : devStatus?.running
+                ? `npm start · работает ${formatUptime(devStatus.startedAt ?? undefined)}`
+                : 'npm start'}
+          </span>
         </CardContent>
       </Card>
 
