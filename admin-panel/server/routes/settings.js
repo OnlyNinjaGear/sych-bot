@@ -57,7 +57,11 @@ const defaults = {
       reaction_only: { label: 'Только реакция', description: 'Достаточно поставить эмодзи, текстом отвечать не надо', responses: [], mode: 'reaction_only' },
     },
   },
-  moodSystem: require(require('path').join(__dirname, '../../../src/settings')).get('moodSystem'),
+  moodSystem: (() => {
+    try { return JSON.parse(fs.readFileSync(BOT_SETTINGS_PATH, 'utf-8')).moodSystem; } catch {}
+    try { return require(require('path').join(__dirname, '../../../src/settings')).get('moodSystem'); } catch {}
+    return { enabled: false, debug: false, intelligence: 50, base: '', moods: {}, contextModifiers: {} };
+  })(),
 };
 
 function read() {

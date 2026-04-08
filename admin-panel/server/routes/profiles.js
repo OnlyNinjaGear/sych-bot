@@ -2,9 +2,16 @@ const router = require('express').Router();
 const fs = require('fs');
 const { PROFILES_PATH, CHAT_PROFILES_PATH, DB_PATH } = require('../utils/paths');
 
+function readProfiles() {
+  return JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf-8'));
+}
+function writeProfiles(data) {
+  fs.writeFileSync(PROFILES_PATH, JSON.stringify(data, null, 2));
+}
+
 router.get('/', (req, res) => {
   try {
-    const profiles = JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf-8'));
+    const profiles = readProfiles();
     let chatNames = {};
     try {
       const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
@@ -27,13 +34,28 @@ router.get('/chats', (req, res) => {
   }
 });
 
-// Сбросить профиль юзера в чате
+// Обновить репутацию юзера
+router.put('/:chatId/:userId/reputation', (req, res) => {
+  try {
+    const { value } = req.body;
+    const profiles = readProfiles();
+    if (profiles[req.params.chatId]?.[req.params.userId]) {
+      profiles[req.params.chatId][req.params.userId].relationship = Math.min(100, Math.max(0, parseInt(value) || 50));
+      writeProfiles(profiles);
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Сбросить профиль юзера в чате (BEFORE /:chatId to avoid matching)
 router.delete('/:chatId/:userId', (req, res) => {
   try {
-    const profiles = JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf-8'));
+    const profiles = readProfiles();
     if (profiles[req.params.chatId]?.[req.params.userId]) {
       delete profiles[req.params.chatId][req.params.userId];
-      fs.writeFileSync(PROFILES_PATH, JSON.stringify(profiles, null, 2));
+      writeProfiles(profiles);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -44,25 +66,10 @@ router.delete('/:chatId/:userId', (req, res) => {
 // Сбросить все профили чата
 router.delete('/:chatId', (req, res) => {
   try {
-    const profiles = JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf-8'));
+    const profiles = readProfiles();
     if (profiles[req.params.chatId]) {
       delete profiles[req.params.chatId];
-      fs.writeFileSync(PROFILES_PATH, JSON.stringify(profiles, null, 2));
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Обновить репутацию юзера
-router.put('/:chatId/:userId/reputation', (req, res) => {
-  try {
-    const { value } = req.body;
-    const profiles = JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf-8'));
-    if (profiles[req.params.chatId]?.[req.params.userId]) {
-      profiles[req.params.chatId][req.params.userId].relationship = Math.min(100, Math.max(0, parseInt(value) || 50));
-      fs.writeFileSync(PROFILES_PATH, JSON.stringify(profiles, null, 2));
+      writeProfiles(profiles);
     }
     res.json({ ok: true });
   } catch (e) {
