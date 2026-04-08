@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/sidebar'
 
 const navItems = [
-  { title: 'Dashboard', url: '/', icon: <LayoutDashboardIcon />, end: true },
+  { title: 'Главная', url: '/', icon: <LayoutDashboardIcon />, end: true },
   { title: 'Настройки', url: '/config', icon: <SettingsIcon /> },
   { title: 'Поведение', url: '/bot-settings', icon: <BrainIcon /> },
   { title: 'Профили', url: '/profiles', icon: <UsersIcon /> },

@@ -105,30 +105,28 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-semibold">Dashboard</h2>
+      <h2 className="text-xl font-semibold">Главная</h2>
 
       {/* Bot status */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            Статус бота
-            {statusLoading ? (
-              <Skeleton className="h-5 w-16" />
-            ) : (
-              <Badge variant={isOnline ? 'default' : 'secondary'}>
-                {isOnline ? '● Online' : '○ Offline'}
-              </Badge>
-            )}
-          </CardTitle>
+          <CardTitle className="text-base">Управление ботом</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-muted-foreground">Статус (PM2)</p>
+              {statusLoading ? <Skeleton className="h-5 w-16 mt-1" /> : (
+                <Badge variant={isOnline ? 'default' : 'secondary'} className="mt-1">
+                  {isOnline ? '● Работает' : '○ Остановлен'}
+                </Badge>
+              )}
+            </div>
             <div><p className="text-muted-foreground">Аптайм</p><p className="font-medium">{formatUptime(status?.uptime)}</p></div>
-            <div><p className="text-muted-foreground">Рестарты</p><p className="font-medium">{status?.restarts ?? '—'}</p></div>
             <div><p className="text-muted-foreground">Память</p><p className="font-medium">{formatMb(status?.memory)}</p></div>
           </div>
           <Separator />
-          <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
             <label className="flex items-center gap-2 cursor-pointer">
               <Switch
                 checked={isOnline}
@@ -136,44 +134,37 @@ export default function DashboardPage() {
                 onCheckedChange={checked => checked ? start.mutate() : stop.mutate()}
               />
               <span className="text-sm">
-                {isTogglePending ? 'Бот включается...' : isOnline ? 'Бот включён' : 'Бот выключен'}
+                {isTogglePending ? 'Подождите...' : isOnline ? 'Включён' : 'Выключен'}
               </span>
             </label>
-            <Button size="sm" variant="secondary" onClick={() => restart.mutate()} disabled={restart.isPending || !isOnline}>
+            <Button size="sm" variant="outline" onClick={() => restart.mutate()} disabled={restart.isPending || !isOnline}>
               {restart.isPending && <Spinner data-icon="inline-start" />}
               {restart.isPending ? 'Перезапуск...' : 'Перезапустить'}
             </Button>
-            <Button size="sm" variant="secondary" className="text-muted-foreground" onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
-              {restartServer.isPending ? <Spinner data-icon="inline-start" /> : ""}
-              {restartServer.isPending ? 'Перезапускаю сервер панели...' : 'Перезапустить сервер панели'}
+          </div>
+          <Separator />
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="text-sm text-muted-foreground w-full">
+              Локальный запуск (dev) —{' '}
+              {devStatus?.running
+                ? <span className="text-foreground">работает {formatUptime(devStatus.startedAt ?? undefined)}</span>
+                : 'не запущен'}
+            </p>
+            {devStatus?.running ? (
+              <Button size="sm" variant="destructive" onClick={() => devStop.mutate()} disabled={devStop.isPending}>
+                {devStop.isPending && <Spinner data-icon="inline-start" />}
+                {devStop.isPending ? 'Остановка...' : 'Остановить бота'}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => devStart.mutate()} disabled={devStart.isPending}>
+                {devStart.isPending && <Spinner data-icon="inline-start" />}
+                {devStart.isPending ? 'Запуск...' : 'Запустить бота'}
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" className="text-muted-foreground ml-auto" onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
+              {restartServer.isPending ? 'Перезапуск сервера...' : 'Перезапустить сервер панели'}
             </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Dev mode */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            Dev режим
-            <Badge variant={devStatus?.running ? 'default' : 'secondary'}>
-              {devStatus?.running ? `● PID ${devStatus.pid}` : '○ Не запущен'}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center gap-4">
-          <Switch
-            checked={devStatus?.running ?? false}
-            disabled={devStart.isPending || devStop.isPending}
-            onCheckedChange={checked => checked ? devStart.mutate() : devStop.mutate()}
-          />
-          <span className="text-sm text-muted-foreground">
-            {devStart.isPending || devStop.isPending
-              ? 'Подождите...'
-              : devStatus?.running
-                ? `npm start · работает ${formatUptime(devStatus.startedAt ?? undefined)}`
-                : 'npm start'}
-          </span>
         </CardContent>
       </Card>
 
