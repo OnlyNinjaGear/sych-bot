@@ -420,7 +420,7 @@ class StorageService {
   resetChatProfiles(chatId) {
     if (this.profiles[chatId]) {
       delete this.profiles[chatId];
-      this._saveProfiles();
+      this._saveProfilesToFile();
       console.log(`[STORAGE] Профили чата ${chatId} сброшены`);
     }
   }

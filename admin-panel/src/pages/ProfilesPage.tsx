@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import { Slider } from '@/components/ui/slider'
 import { api } from '@/lib/api'
 
 interface UserProfile {
@@ -21,12 +24,29 @@ interface ProfilesData {
 }
 
 export default function ProfilesPage() {
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [openChat, setOpenChat] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery<ProfilesData>({
     queryKey: ['profiles'],
     queryFn: () => api.get('/profiles'),
+  })
+
+  const deleteUser = useMutation({
+    mutationFn: ({ chatId, userId }: { chatId: string; userId: string }) => api.delete(`/profiles/${chatId}/${userId}`),
+    onSuccess: () => { toast.success('Профиль удалён'); qc.invalidateQueries({ queryKey: ['profiles'] }) },
+  })
+
+  const deleteChat = useMutation({
+    mutationFn: (chatId: string) => api.delete(`/profiles/${chatId}`),
+    onSuccess: () => { toast.success('Все профили чата удалены'); qc.invalidateQueries({ queryKey: ['profiles'] }) },
+  })
+
+  const setReputation = useMutation({
+    mutationFn: ({ chatId, userId, value }: { chatId: string; userId: string; value: number }) =>
+      api.put(`/profiles/${chatId}/${userId}/reputation`, { value }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['profiles'] }) },
   })
 
   if (isLoading) return <Skeleton className="h-64 w-full" />
@@ -75,6 +95,10 @@ export default function ProfilesPage() {
                 <span>{chatNames[chatId] || `Чат ${chatId}`}</span>
                 <span className="flex items-center gap-2">
                   <Badge variant="secondary">{filteredUsers.length} польз.</Badge>
+                  <Button variant="ghost" size="sm" className="text-destructive text-xs" onClick={e => {
+                    e.stopPropagation()
+                    if (confirm('Удалить все профили этого чата?')) deleteChat.mutate(chatId)
+                  }}>Очистить чат</Button>
                   <span className="text-muted-foreground text-sm">{isOpen ? '▲' : '▼'}</span>
                 </span>
               </CardTitle>
@@ -95,8 +119,11 @@ export default function ProfilesPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Progress value={profile.relationship ?? 50} className="flex-1 h-2" />
+                        <Slider min={0} max={100} step={1} value={[profile.relationship ?? 50]} className="flex-1"
+                          onValueChange={([v]) => setReputation.mutate({ chatId, userId: uid, value: v })} />
                         <span className="text-xs text-muted-foreground w-8 text-right">{profile.relationship ?? 50}</span>
+                        <Button variant="ghost" size="sm" className="text-destructive text-xs shrink-0"
+                          onClick={() => deleteUser.mutate({ chatId, userId: uid })}>✕</Button>
                       </div>
                       {profile.facts && (
                         <p className="text-xs text-muted-foreground">{profile.facts}</p>
