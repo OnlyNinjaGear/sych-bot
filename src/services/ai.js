@@ -10,15 +10,25 @@ const storage = require('./storage');
 
 class AiService {
     constructor() {
-        // 1. Инициализация OpenAI-совместимого клиента (OpenRouter / Mistral / DeepSeek)
-        this.openai = config.aiKey ? new OpenAI({
-            baseURL: config.aiBaseUrl,
-            apiKey: config.aiKey,
-            defaultHeaders: {
-                "HTTP-Referer": "https://github.com/Veta-one/toha-bot",
-                "X-Title": "Toha Bot"
-            }
-        }) : null;
+        // 1. Инициализация OpenAI-совместимого клиента
+        // Если провайдер Google и есть ключи — используем все ключи с ротацией
+        const isGoogleProvider = (config.aiBaseUrl || '').includes('generativelanguage.googleapis.com');
+        const clientHeaders = { "HTTP-Referer": "https://github.com/Veta-one/toha-bot", "X-Title": "Toha Bot" };
+
+        if (isGoogleProvider && config.geminiKeys.length > 0) {
+            this.openaiClients = config.geminiKeys.map(key => new OpenAI({
+                baseURL: config.aiBaseUrl, apiKey: key, defaultHeaders: clientHeaders
+            }));
+            console.log(`[AI] Google API: ротация через ${this.openaiClients.length} ключей`);
+        } else if (config.aiKey) {
+            this.openaiClients = [new OpenAI({
+                baseURL: config.aiBaseUrl, apiKey: config.aiKey, defaultHeaders: clientHeaders
+            })];
+        } else {
+            this.openaiClients = [];
+        }
+        this.openaiIdx = 0;
+        this.openai = this.openaiClients[0] || null;
 
         // 2. Инициализация Tavily
         this.tavilyClient = config.tavilyKey ? tavily({ apiKey: config.tavilyKey }) : null;
@@ -36,6 +46,13 @@ class AiService {
         if (this.keys.length === 0) console.warn("WARNING: Нет ключей Gemini в .env! Fallback не сработает.");
         this.initNativeModel();
         this.watchEnvFile();
+    }
+
+    rotateOpenAI() {
+        if (this.openaiClients.length <= 1) return;
+        this.openaiIdx = (this.openaiIdx + 1) % this.openaiClients.length;
+        this.openai = this.openaiClients[this.openaiIdx];
+        console.log(`[AI] Ротация API ключа → #${this.openaiIdx + 1}`);
     }
 
     watchEnvFile() {
@@ -359,8 +376,11 @@ class AiService {
                         temperature: 0.9,
                     });
                     storage.incrementStat('smart');
-                    return completion.choices[0].message.content.replace(/^thought[\s\S]*?\n\n/i, '');
+                    return completion.choices[0].message.content
+                        .replace(/<thought>[\s\S]*?<\/thought>/g, '')
+                        .replace(/^thought[\s\S]*?\n\n/i, '').trim();
                 } catch (e) {
+                    if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
                     console.error(`[API SMART FAIL] ${model}: ${e.message}`);
                 }
             }
@@ -445,14 +465,21 @@ class AiService {
             const chain = [settings.get('logicModel'), ...settings.get('logicModelFallbacks')].filter(Boolean);
             for (const model of chain) {
                 try {
-                    const completion = await this.openai.chat.completions.create({
+                    const opts = {
                         model,
                         messages: [{ role: "user", content: promptJson }],
-                        response_format: { type: "json_object" }
-                    });
+                    };
+                    // Gemma не поддерживает response_format на Google endpoint
+                    if (!model.includes('gemma')) opts.response_format = { type: "json_object" };
+                    const completion = await this.openai.chat.completions.create(opts);
                     storage.incrementStat('logic');
-                    return JSON.parse(completion.choices[0].message.content);
+                    let text = completion.choices[0].message.content
+                        .replace(/<thought>[\s\S]*?<\/thought>/g, '').trim();
+                    const first = text.indexOf('{'), last = text.lastIndexOf('}');
+                    if (first !== -1 && last !== -1) text = text.substring(first, last + 1);
+                    return JSON.parse(text);
                 } catch (e) {
+                    if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
                     console.error(`[LOGIC FAIL] ${model}: ${e.message}`);
                 }
             }
@@ -480,8 +507,10 @@ class AiService {
                         messages: [{ role: "user", content: promptText }]
                     });
                     storage.incrementStat('logic');
-                    return completion.choices[0].message.content;
+                    return completion.choices[0].message.content
+                        .replace(/<thought>[\s\S]*?<\/thought>/g, '').trim();
                 } catch (e) {
+                    if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
                     console.error(`[LOGIC TEXT FAIL] ${model}: ${e.message}`);
                 }
             }
