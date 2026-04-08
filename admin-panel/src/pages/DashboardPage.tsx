@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { api } from '@/lib/api'
+import { Spinner } from '@/components/ui/spinner'
 
 interface BotStatus {
   found: boolean
@@ -115,7 +116,8 @@ export default function DashboardPage() {
               </span>
             </label>
             <Button size="sm" variant="outline" onClick={() => restart.mutate()} disabled={restart.isPending || !isOnline}>
-              {restart.isPending ? 'Перезапуск...' : '↺ Перезапустить'}
+              <Spinner data-icon="inline-start" />
+              {restart.isPending ? 'Перезапуск...' : 'Перезапустить'}
             </Button>
             <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
               {restartServer.isPending ? '...' : '↺ Сервер панели'}

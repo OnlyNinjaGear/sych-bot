@@ -35,7 +35,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<'div'>) 
       <form onSubmit={handleSubmit}>
         <FieldGroup className="gap-4">
           <div className="flex flex-col items-center gap-2 text-center">
-            <div className="flex size-16 items-center justify-center rounded-full bg-sidebar-primary text-4xl">
+            <div className="flex size-16 items-center justify-center rounded-full bg-primary text-4xl">
               🧌
             </div>
             <h1 className="text-4xl font-heading font-bold">Тоха</h1>

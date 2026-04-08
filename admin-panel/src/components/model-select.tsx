@@ -34,7 +34,7 @@ export function ModelSelect({ value, onChange, groups, className }: ModelSelectP
         value={isCustom ? '__custom__' : (value || '')}
         onValueChange={v => onChange(v === '__custom__' ? '' : v)}
       >
-        <SelectTrigger className={className ?? 'font-mono text-sm'}>
+        <SelectTrigger className={className ?? 'font-mono text-sm w-full'}>
           <SelectValue placeholder="Выбрать модель..." />
         </SelectTrigger>
         <SelectContent>
@@ -54,14 +54,14 @@ export function ModelSelect({ value, onChange, groups, className }: ModelSelectP
               )}
             </>
           ))}
-          <SelectItem value="__custom__">✏ Другая модель...</SelectItem>
+          <SelectItem value="__custom__">Другая модель...</SelectItem>
         </SelectContent>
       </Select>
       {isCustom && (
         <Input
           value={value}
           onChange={e => onChange(e.target.value)}
-          placeholder="точное название модели"
+          placeholder="Точное название модели"
           className="font-mono text-sm"
           autoFocus
         />

@@ -68,7 +68,7 @@ export function RefreshButton({
       onTapCancel={() =>
         animateTo(-340, { type: "spring", stiffness: 200, damping: 18 })
       }
-      whileHover={{ scale: 1.05 }}
+      whileHover={{ scale: 1 }}
       whileTap={{ scale: 0.95 }}
       disabled={disabled}
       {...props}

@@ -8,6 +8,7 @@ import ProfilesPage from '@/pages/ProfilesPage'
 import ChatProfilesPage from '@/pages/ChatProfilesPage'
 import LogsPage from '@/pages/LogsPage'
 import TestPage from '@/pages/TestPage'
+import ResponsesPage from '@/pages/ResponsesPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="chat-profiles" element={<ChatProfilesPage />} />
         <Route path="logs" element={<LogsPage />} />
         <Route path="test" element={<TestPage />} />
+        <Route path="responses" element={<ResponsesPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

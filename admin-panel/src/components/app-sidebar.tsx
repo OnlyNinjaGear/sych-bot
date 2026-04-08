@@ -7,6 +7,7 @@ import {
   MessagesSquareIcon,
   ScrollTextIcon,
   FlaskConicalIcon,
+  MessageCircleReplyIcon,
 } from 'lucide-react'
 import { NavMain } from '@/components/nav-main'
 import { NavUser } from '@/components/nav-user'
@@ -28,6 +29,7 @@ const navItems = [
   { title: 'Профили', url: '/profiles', icon: <UsersIcon /> },
   { title: 'Чаты', url: '/chat-profiles', icon: <MessagesSquareIcon /> },
   { title: 'Логи', url: '/logs', icon: <ScrollTextIcon /> },
+  { title: 'Ответы', url: '/responses', icon: <MessageCircleReplyIcon /> },
   { title: 'Тест', url: '/test', icon: <FlaskConicalIcon /> },
 ]
 

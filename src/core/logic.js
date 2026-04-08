@@ -13,50 +13,19 @@ const recentActiveUsers = [];
 
 // === ГЕНЕРАТОР ОТМАЗОК СЫЧА ===
 function getSychErrorReply(errText) {
+    const r = settings.get('responses');
     const error = errText.toLowerCase();
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-    // 1. ЦЕНЗУРА (Safety / Blocked)
-    if (error.includes('prohibited') || error.includes('safety') || error.includes('blocked') || error.includes('policy')) {
-        const phrases = [
-            "🤬 Гугл опять включил моралиста и зацензурил мой ответ. Сказал, что мы тут слишком токсичные. Сорян.",
-            "🔞 Не, ну это бан. Нейронка отказалась это генерить, говорит \"Violation of Safety Policy\". Слишком грязно даже для меня.",
-            "👮‍♂️ Опа, цензура подъехала. Гугл считает, что этот контент оскорбляет чьи-то нежные чувства. Попробуй помягче спросить."
-        ];
-        return phrases[Math.floor(Math.random() * phrases.length)];
-    }
-
-    // 2. ПЕРЕГРУЗКА (503 / Overloaded)
-    if (error.includes('503') || error.includes('overloaded') || error.includes('unavailable') || error.includes('timeout')) {
-        const phrases = [
-            "🔥 Там у Гугла сервера плавятся. Говорят \"Model is overloaded\". Подожди минуту, пусть остынут.",
-            "🐌 Гугл тупит страшно, 503-я ошибка. Я запрос кинул, а там тишина. Походу, китайцы опять все видеокарты заняли.",
-            "💤 Чёт нейронка устала. Пишет \"Service Unavailable\". Дай ей перекур пару секунд."
-        ];
-        return phrases[Math.floor(Math.random() * phrases.length)];
-    }
-
-    // 3. ЛИМИТЫ (429 / Quota)
-    if (error.includes('429') || error.includes('quota') || error.includes('exhausted') || error.includes('лимит')) {
-        const phrases = [
-            "💸 Всё, пацаны, лимиты всё. Мы слишком много болтаем, Гугл перекрыл краник. Ждем отката квоты.",
-            "🛑 Стопэ. Ошибка 429 — \"Too Many Requests\". Я слишком быстро отвечаю, меня притормозили. Ща отдышусь.",
-            "📉 Квота всё. Гугл сказал «хватит болтать». Попробуй позже."
-        ];
-        return phrases[Math.floor(Math.random() * phrases.length)];
-    }
-
-    // 4. ТЯЖЕЛЫЙ ЗАПРОС (400 / Too Large)
-    if (error.includes('400') || error.includes('too large') || error.includes('invalid argument')) {
-        const phrases = [
-            "🐘 Ты мне библиотеку Конгресса скинул? Гугл говорит, файл слишком жирный, я это не переварю.",
-            "📜 Много буков. Ошибка \"Payload size limit\". Сократи басню, братан, не лезет.",
-            "💾 Файл слишком жирный, не лезет в промпт. Давай что-то полегче."
-        ];
-        return phrases[Math.floor(Math.random() * phrases.length)];
-    }
-
-    // 5. ДЕФОЛТНАЯ ОШИБКА
-    return "😴 тоха объелся токенов и спит";
+    if (error.includes('prohibited') || error.includes('safety') || error.includes('blocked') || error.includes('policy'))
+        return pick(r.errorCensored);
+    if (error.includes('503') || error.includes('overloaded') || error.includes('unavailable') || error.includes('timeout'))
+        return pick(r.errorOverloaded);
+    if (error.includes('429') || error.includes('quota') || error.includes('exhausted') || error.includes('лимит'))
+        return pick(r.errorQuota);
+    if (error.includes('400') || error.includes('too large') || error.includes('invalid argument'))
+        return pick(r.errorLarge);
+    return r.errorDefault;
 }
 
 function addToHistory(chatId, sender, text) {
@@ -283,7 +252,7 @@ async function processMessage(bot, msg) {
 
 
     if (msg.left_chat_member && msg.left_chat_member.id === config.adminId) {
-        await bot.sendMessage(chatId, "Батя ушел, я съёбываю");
+        await bot.sendMessage(chatId, settings.get('responses').adminLeft);
         await bot.leaveChat(chatId);
         return;
     }
@@ -418,12 +387,12 @@ _ver: ${config.version}_
 
     if (command === '/mute') {
         const nowMuted = storage.toggleMute(chatId, threadId);
-        return bot.sendMessage(chatId, nowMuted ? "🧌 Окей молчу" : "🧌 Я тут", getBaseOptions(threadId));
+        return bot.sendMessage(chatId, nowMuted ? settings.get('responses').muteOn : settings.get('responses').muteOff, getBaseOptions(threadId));
     }
     if (command === '/reset') {
         chatHistory[chatId] = [];
         analysisBuffers[chatId] = [];
-        return bot.sendMessage(chatId, "🧌 Окей, всё забыл, ну было и было", getBaseOptions(threadId));
+        return bot.sendMessage(chatId, settings.get('responses').cleared, getBaseOptions(threadId));
     }
 
     if (command === '/restart' && userId === config.adminId) {
@@ -636,7 +605,7 @@ _ver: ${config.version}_
             const vid = msg.video || msg.reply_to_message.video;
             // Лимит 20 МБ (Telegram API limit for getFile)
             if (vid.file_size > 20 * 1024 * 1024) {
-                return bot.sendMessage(chatId, "🐢 Братан, видос жирный пиздец (больше 20мб). Я не грузчик, таскать такое. Сожми или обрежь.", getReplyOptions(msg));
+                return bot.sendMessage(chatId, settings.get('responses').videoTooLarge, getReplyOptions(msg));
             }
             try {
                 await bot.sendChatAction(chatId, 'upload_video', getActionOptions(threadId));
@@ -660,12 +629,12 @@ _ver: ${config.version}_
             ];
 
             if (doc.file_size > 20 * 1024 * 1024) {
-                return bot.sendMessage(chatId, "🐘 Не, файл тяжелый (больше 20мб). Я пас.", getReplyOptions(msg));
+                return bot.sendMessage(chatId, settings.get('responses').fileTooLarge, getReplyOptions(msg));
             }
 
             if (!allowedMimes.includes(doc.mime_type) && !doc.mime_type.startsWith('image/')) {
                 // Если формат странный, но юзер прямо просит - можно попробовать рискнуть, но лучше предупредить
-                return bot.sendMessage(chatId, "🗿 Эт че за формат? Я такое не читаю. Давай PDF или текст.", getReplyOptions(msg));
+                return bot.sendMessage(chatId, settings.get('responses').wrongFormat, getReplyOptions(msg));
             }
 
             try {
