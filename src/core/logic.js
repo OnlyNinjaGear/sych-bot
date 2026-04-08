@@ -739,11 +739,13 @@ _ver: ${config.version}_
                         console.log(`[SMART FILTER] Перехват: ${classification.category} → "${text.substring(0, 50)}"`);
 
                         if (catConfig.mode === 'reaction_only') {
+                            const fallbackEmojis = ['👍', '😎', '🤝', '💀', '🗿', '😐'];
                             const hBlock = (chatHistory[chatId] || []).slice(-15)
                                 .map(m => `${m.role}: ${m.text}`).join('\n');
                             ai.determineReaction(hBlock + `\nСообщение: ${text}`)
                                 .then(async (emoji) => {
-                                    if (emoji) try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji }] }); } catch (e) { }
+                                    const pick = emoji || fallbackEmojis[Math.floor(Math.random() * fallbackEmojis.length)];
+                                    try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji: pick }] }); } catch (e) { }
                                 });
                             return;
                         }
