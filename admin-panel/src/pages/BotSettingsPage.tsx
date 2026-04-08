@@ -28,6 +28,9 @@ interface BotSettings {
   visionModel: string
   reactionRate: number
   maxTokens: number
+  temperature: number
+  laziness: number
+  lazyResponses: string[]
   contextSize: number
   bufferSize: number
   chatBufferSize: number
@@ -328,12 +331,40 @@ export default function BotSettingsPage() {
                 />
                 <NumberInput
                   label={`Макс. токенов — ${s.maxTokens}`}
-                  hint="Лимит длины ответа. 500 = ~200 слов (короткие ответы), 2500 = длинные"
+                  hint="Лимит длины ответа. 500 = ~200 слов, 2500 = длинные"
                   value={s.maxTokens}
                   onChange={v => set('maxTokens', v)}
                   min={100}
                   max={4000}
                 />
+                <NumberInput
+                  label={`Температура — ${s.temperature}`}
+                  hint="Креативность ответов. 0.5 = сдержанный, 0.9 = живой, 1.5 = дичь"
+                  value={s.temperature}
+                  onChange={v => set('temperature', v)}
+                  min={0}
+                  max={2}
+                />
+                <Separator />
+                <NumberInput
+                  label={`Лень — ${Math.round((s.laziness ?? 0) * 100)}%`}
+                  hint="Шанс ответить шаблонной отмазкой вместо полного ответа (только если бот не вызван напрямую)"
+                  value={s.laziness ?? 0}
+                  onChange={v => set('laziness', v)}
+                  min={0}
+                  max={1}
+                />
+                <Field>
+                  <FieldLabel>Ленивые ответы</FieldLabel>
+                  <Textarea
+                    value={(s.lazyResponses ?? []).join('\n')}
+                    onChange={e => set('lazyResponses', e.target.value.split('\n'))}
+                    rows={4}
+                    className="font-mono text-sm resize-none"
+                    placeholder="в падлу отвечать&#10;неа&#10;потом"
+                  />
+                  <FieldDescription>Каждая строка = отдельный вариант</FieldDescription>
+                </Field>
                 <Separator />
                 <NumberInput
                   label={`Контекст чата — ${s.contextSize} сообщений`}

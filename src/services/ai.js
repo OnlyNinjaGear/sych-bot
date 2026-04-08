@@ -373,7 +373,7 @@ class AiService {
                         model,
                         messages: apiMessages,
                         max_tokens: settings.get('maxTokens') || 500,
-                        temperature: 0.9,
+                        temperature: settings.get('temperature') ?? 0.9,
                     });
                     storage.incrementStat('smart');
                     return completion.choices[0].message.content
@@ -442,7 +442,7 @@ class AiService {
 
             const result = await modelToUse.generateContent({
                 contents: [{ role: 'user', parts: promptParts }],
-                generationConfig: { maxOutputTokens: settings.get('maxTokens') || 500, temperature: 0.9 }
+                generationConfig: { maxOutputTokens: settings.get('maxTokens') || 500, temperature: settings.get('temperature') ?? 0.9 }
             });
 
             return result.response.text();

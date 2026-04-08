@@ -702,6 +702,19 @@ _ver: ${config.version}_
             initChatProfile(bot, chatId); // Асинхронно, не блокируем ответ
         }
 
+        // === ЛЕНЬ — случайный ленивый ответ ===
+        const laziness = settings.get('laziness') || 0;
+        if (laziness > 0 && Math.random() < laziness && !isDirectlyCalled) {
+            const pool = settings.get('lazyResponses') || [];
+            if (pool.length > 0) {
+                const lazy = pool[Math.floor(Math.random() * pool.length)];
+                console.log(`[LAZY] Лень сработала → "${lazy}"`);
+                try { await bot.sendMessage(chatId, lazy, getReplyOptions(msg)); } catch (e) { }
+                addToHistory(chatId, "Тоха", lazy);
+                return;
+            }
+        }
+
         // === SMART FILTER — перехват до дорогой модели ===
         if (text.length > 0 && userId !== config.adminId) {
             const filterConfig = settings.get('smartFilter');

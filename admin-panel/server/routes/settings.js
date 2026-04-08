@@ -77,6 +77,11 @@ router.put('/', (req, res) => {
     const updated = { ...current, ...req.body };
     updated.reactionRate = Math.min(1, Math.max(0, parseFloat(updated.reactionRate) || 0));
     updated.maxTokens = Math.min(4000, Math.max(100, parseInt(updated.maxTokens) || 500));
+    updated.temperature = Math.min(2, Math.max(0, parseFloat(updated.temperature) || 0.9));
+    updated.laziness = Math.min(1, Math.max(0, parseFloat(updated.laziness) || 0));
+    updated.lazyResponses = Array.isArray(updated.lazyResponses)
+      ? updated.lazyResponses.filter(r => typeof r === 'string' && r.trim())
+      : [];
     updated.contextSize = Math.min(100, Math.max(5, parseInt(updated.contextSize) || 30));
     updated.bufferSize = Math.min(200, Math.max(5, parseInt(updated.bufferSize) || 20));
     updated.chatBufferSize = Math.min(500, Math.max(10, parseInt(updated.chatBufferSize) || 50));
