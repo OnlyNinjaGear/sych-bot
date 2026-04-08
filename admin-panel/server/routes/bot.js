@@ -1,7 +1,10 @@
 const router = require('express').Router();
 const { exec } = require('child_process');
+const path = require('path');
+const { BOT_ROOT } = require('../utils/paths');
 
 const BOT_NAME = 'toha-bot';
+const BOT_SCRIPT = path.join(BOT_ROOT, 'src/index.js');
 
 function pm2(cmd) {
   return new Promise((resolve, reject) => {
@@ -42,7 +45,12 @@ router.post('/restart', async (req, res) => {
 
 router.post('/start', async (req, res) => {
   try {
-    await pm2(`pm2 start ${BOT_NAME}`);
+    try {
+      await pm2(`pm2 start ${BOT_NAME}`);
+    } catch {
+      // Process not registered in PM2 yet — start fresh with script path
+      await pm2(`pm2 start ${BOT_SCRIPT} --name ${BOT_NAME}`);
+    }
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

@@ -112,15 +112,16 @@ export default function DashboardPage() {
                 onCheckedChange={checked => checked ? start.mutate() : stop.mutate()}
               />
               <span className="text-sm">
-                {isTogglePending ? 'Подождите...' : isOnline ? 'Бот включён' : 'Бот выключен'}
+                {isTogglePending ? 'Бот включается...' : isOnline ? 'Бот включён' : 'Бот выключен'}
               </span>
             </label>
-            <Button size="sm" variant="outline" onClick={() => restart.mutate()} disabled={restart.isPending || !isOnline}>
-              <Spinner data-icon="inline-start" />
+            <Button size="sm" variant="secondary" onClick={() => restart.mutate()} disabled={restart.isPending || !isOnline}>
+              {restart.isPending && <Spinner data-icon="inline-start" />}
               {restart.isPending ? 'Перезапуск...' : 'Перезапустить'}
             </Button>
-            <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
-              {restartServer.isPending ? '...' : '↺ Сервер панели'}
+            <Button size="sm" variant="secondary" className="text-muted-foreground" onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
+              {restartServer.isPending ? <Spinner data-icon="inline-start" /> : ""}
+              {restartServer.isPending ? 'Перезапускаю сервер панели...' : 'Перезапустить сервер панели'}
             </Button>
           </div>
         </CardContent>
