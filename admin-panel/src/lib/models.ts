@@ -13,14 +13,16 @@ export const PROVIDERS: Record<ProviderId, { name: string; baseUrl: string; mode
       free: [
         'gemini-2.5-flash-lite',
         'gemini-2.0-flash-lite',
-        'gemini-1.5-flash-8b',
+        'gemini-3.1-flash-lite-preview',
+        'gemini-3-flash-preview',
+        'gemma-3-27b-it',
+        'gemma-4-26b-a4b-it',
       ],
       paid: [
         'gemini-2.5-flash',
         'gemini-2.5-pro',
         'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'gemini-1.5-pro',
+        'gemini-3-pro-preview',
       ],
     },
   },
@@ -29,9 +31,9 @@ export const PROVIDERS: Record<ProviderId, { name: string; baseUrl: string; mode
     baseUrl: 'https://openrouter.ai/api/v1',
     models: {
       free: [
-        'google/gemma-3-27b-it:free',
+        'google/gemini-2.5-flash-lite:free',
         'google/gemini-2.0-flash-lite:free',
-        'google/gemini-2.5-flash-lite-preview:free',
+        'google/gemma-3-27b-it:free',
         'meta-llama/llama-3.1-8b-instruct:free',
         'mistralai/mistral-7b-instruct:free',
         'qwen/qwq-32b:free',
@@ -55,19 +57,22 @@ export const PROVIDERS: Record<ProviderId, { name: string; baseUrl: string; mode
   },
 }
 
-/** Google Native (Gemini SDK) — только для nativeModels */
+/** Google Native (Gemini SDK) — только для nativeModels и vision */
 export const NATIVE_MODELS: ModelGroup = {
   free: [
     'gemini-2.5-flash-lite',
     'gemini-2.0-flash-lite',
-    'gemini-1.5-flash-8b',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-3-flash-preview',
+    'gemma-3-27b-it',
+    'gemma-4-26b-a4b-it',
+    'gemma-4-31b-it',
   ],
   paid: [
     'gemini-2.5-flash',
     'gemini-2.5-pro',
     'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
+    'gemini-3-pro-preview',
   ],
 }
 
