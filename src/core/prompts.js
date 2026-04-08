@@ -340,6 +340,30 @@ ${recentHistory}
 }
     `,
 
+   // === УМНЫЙ ФИЛЬТР (SMART FILTER) ===
+   classifyMessage: (userMessage, recentHistory, categoryDescriptions, senderName) => `Ты фильтр сообщений. Определи категорию.
+
+ОТПРАВИТЕЛЬ: ${senderName}
+
+ИСТОРИЯ (последние сообщения):
+${recentHistory}
+
+СООБЩЕНИЕ: "${userMessage}"
+
+КАТЕГОРИИ:
+${categoryDescriptions}
+- "normal" — сообщение заслуживает полного ответа (вопрос по делу, просьба, интересная тема)
+
+ПРАВИЛА:
+1. По умолчанию ВСЕГДА "normal". Другие категории только при 100% уверенности
+2. "spam" — только если ТОЧНО ТАКОЙ ЖЕ вопрос уже был в истории выше
+3. Если это первое сообщение или вопрос по делу — ВСЕГДА "normal"
+4. Если сомневаешься — "normal"
+
+JSON:
+{"category":"normal","reason":"пояснение"}
+`,
+
    // === ПАРСЕР НАПОМИНАНИЙ (ОБНОВЛЕННЫЙ) ===
    parseReminder: (currentTime, userText, contextText) => `
 Ты — умный личный ассистент.

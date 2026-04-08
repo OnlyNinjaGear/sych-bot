@@ -48,6 +48,14 @@ const defaults = {
   chatBufferSize: 50,
   geminiKeysPaid: [],
   responses: defaultResponses,
+  smartFilter: {
+    enabled: true,
+    categories: {
+      spam: { label: 'Спам / повторы', description: 'Повторяющиеся запросы, одно и то же сообщение несколько раз подряд', responses: ['ты это уже спрашивал, скроль наверх', 'опять? у тебя дежавю?', 'я уже ответил, чел'], mode: 'text' },
+      stupid: { label: 'Бессмыслица', description: 'Бессмысленные сообщения вроде "ыыыы", "аааа", бред, попытка заспамить', responses: ['чё', 'ты в порядке?', 'ну и ну'], mode: 'text' },
+      reaction_only: { label: 'Только реакция', description: 'Достаточно поставить эмодзи, текстом отвечать не надо', responses: [], mode: 'reaction_only' },
+    },
+  },
 };
 
 function read() {
@@ -92,6 +100,21 @@ router.put('/', (req, res) => {
     for (const k of arrayKeys) {
       if (!Array.isArray(updated.responses[k]) || updated.responses[k].length === 0)
         updated.responses[k] = defaultResponses[k];
+    }
+    // Validate smartFilter
+    if (updated.smartFilter && typeof updated.smartFilter === 'object') {
+      updated.smartFilter.enabled = Boolean(updated.smartFilter.enabled);
+      if (typeof updated.smartFilter.categories === 'object') {
+        for (const [key, cat] of Object.entries(updated.smartFilter.categories)) {
+          if (key === 'normal' || typeof cat !== 'object') { delete updated.smartFilter.categories[key]; continue; }
+          cat.label = String(cat.label || key).substring(0, 100);
+          cat.description = String(cat.description || '').substring(0, 300);
+          cat.mode = ['text', 'reaction_only', 'silent'].includes(cat.mode) ? cat.mode : 'text';
+          cat.responses = Array.isArray(cat.responses) ? cat.responses.filter(r => typeof r === 'string' && r.trim()).slice(0, 20) : [];
+        }
+      } else {
+        updated.smartFilter.categories = {};
+      }
     }
     fs.writeFileSync(BOT_SETTINGS_PATH, JSON.stringify(updated, null, 2));
     res.json(updated);

@@ -702,6 +702,42 @@ _ver: ${config.version}_
             initChatProfile(bot, chatId); // Асинхронно, не блокируем ответ
         }
 
+        // === SMART FILTER — перехват до дорогой модели ===
+        if (text.length > 0 && userId !== config.adminId) {
+            const filterConfig = settings.get('smartFilter');
+            if (filterConfig && filterConfig.enabled) {
+                const filterHistory = (chatHistory[chatId] || []).slice(-10)
+                    .map(m => `${m.role}: ${m.text}`).join('\n');
+                const classification = await ai.classifyMessage(text, filterHistory, senderName);
+
+                if (classification.category !== 'normal') {
+                    const catConfig = filterConfig.categories[classification.category];
+                    if (catConfig) {
+                        console.log(`[SMART FILTER] Перехват: ${classification.category} → "${text.substring(0, 50)}"`);
+
+                        if (catConfig.mode === 'reaction_only') {
+                            const hBlock = (chatHistory[chatId] || []).slice(-15)
+                                .map(m => `${m.role}: ${m.text}`).join('\n');
+                            ai.determineReaction(hBlock + `\nСообщение: ${text}`)
+                                .then(async (emoji) => {
+                                    if (emoji) try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji }] }); } catch (e) { }
+                                });
+                            return;
+                        }
+
+                        if (catConfig.mode === 'silent') return;
+
+                        if (catConfig.responses && catConfig.responses.length > 0) {
+                            const tmpl = catConfig.responses[Math.floor(Math.random() * catConfig.responses.length)];
+                            try { await bot.sendMessage(chatId, tmpl, getReplyOptions(msg)); } catch (e) { }
+                            addToHistory(chatId, "Тоха", tmpl);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
         try {
             // Вытаскиваем текст реплая для контекста
             const replyText = msg.reply_to_message ? (msg.reply_to_message.text || msg.reply_to_message.caption || "") : "";

@@ -518,6 +518,27 @@ class AiService {
         return null;
     }
 
+    async classifyMessage(userMessage, recentHistory, senderName) {
+        const filterConfig = settings.get('smartFilter');
+        if (!filterConfig || !filterConfig.enabled) {
+            return { category: 'normal', reason: 'filter disabled' };
+        }
+        const categoryDescriptions = Object.entries(filterConfig.categories)
+            .map(([key, cat]) => `- "${key}" — ${cat.description}`)
+            .join('\n');
+        const prompt = prompts.classifyMessage(userMessage, recentHistory, categoryDescriptions, senderName);
+        try {
+            const result = await this.runLogicModel(prompt);
+            if (result && result.category) {
+                console.log(`[SMART FILTER] category=${result.category}, reason="${result.reason}"`);
+                return result;
+            }
+        } catch (e) {
+            console.error(`[SMART FILTER ERROR] ${e.message}`);
+        }
+        return { category: 'normal', reason: 'fallback' };
+    }
+
     async analyzeUserImmediate(lastMessages, currentProfile) {
         return this.runLogicModel(prompts.analyzeImmediate(currentProfile, lastMessages));
     }
