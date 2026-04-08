@@ -27,6 +27,7 @@ interface BotSettings {
   nativeModels: string[]
   visionModel: string
   reactionRate: number
+  maxTokens: number
   contextSize: number
   bufferSize: number
   chatBufferSize: number
@@ -324,6 +325,14 @@ export default function BotSettingsPage() {
                   onChange={v => set('reactionRate', v)}
                   min={0}
                   max={1}
+                />
+                <NumberInput
+                  label={`Макс. токенов — ${s.maxTokens}`}
+                  hint="Лимит длины ответа. 500 = ~200 слов (короткие ответы), 2500 = длинные"
+                  value={s.maxTokens}
+                  onChange={v => set('maxTokens', v)}
+                  min={100}
+                  max={4000}
                 />
                 <Separator />
                 <NumberInput

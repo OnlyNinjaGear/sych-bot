@@ -43,6 +43,7 @@ const defaults = {
   nativeModels: ['gemini-2.5-flash-lite'],
   visionModel: 'gemini-2.5-flash',
   reactionRate: 0.15,
+  maxTokens: 500,
   contextSize: 30,
   bufferSize: 20,
   chatBufferSize: 50,
@@ -75,6 +76,7 @@ router.put('/', (req, res) => {
     const current = read();
     const updated = { ...current, ...req.body };
     updated.reactionRate = Math.min(1, Math.max(0, parseFloat(updated.reactionRate) || 0));
+    updated.maxTokens = Math.min(4000, Math.max(100, parseInt(updated.maxTokens) || 500));
     updated.contextSize = Math.min(100, Math.max(5, parseInt(updated.contextSize) || 30));
     updated.bufferSize = Math.min(200, Math.max(5, parseInt(updated.bufferSize) || 20));
     updated.chatBufferSize = Math.min(500, Math.max(10, parseInt(updated.chatBufferSize) || 50));

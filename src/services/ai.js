@@ -372,7 +372,7 @@ class AiService {
                     const completion = await this.openai.chat.completions.create({
                         model,
                         messages: apiMessages,
-                        max_tokens: 500,
+                        max_tokens: settings.get('maxTokens') || 500,
                         temperature: 0.9,
                     });
                     storage.incrementStat('smart');
@@ -442,7 +442,7 @@ class AiService {
 
             const result = await modelToUse.generateContent({
                 contents: [{ role: 'user', parts: promptParts }],
-                generationConfig: { maxOutputTokens: 500, temperature: 0.9 }
+                generationConfig: { maxOutputTokens: settings.get('maxTokens') || 500, temperature: 0.9 }
             });
 
             return result.response.text();

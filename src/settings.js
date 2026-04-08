@@ -13,6 +13,7 @@ const defaults = {
   nativeModels: ['gemini-2.5-flash-lite'], // Google Native — ротация по моделям
   visionModel: 'gemini-2.5-flash',        // для изображений
   reactionRate: 0.15,            // вероятность реакции (0.0 - 1.0)
+  maxTokens: 500,                // лимит длины ответа основной модели
   contextSize: 30,               // сообщений в истории чата
   bufferSize: 20,                // сообщений до анализа профиля юзера
   chatBufferSize: 50,            // сообщений до анализа профиля чата
