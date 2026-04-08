@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { api } from '@/lib/api'
@@ -50,15 +51,21 @@ export default function DashboardPage() {
     refetchInterval: 10000,
   })
 
-  const restart = useMutation({
-    mutationFn: () => api.post('/bot/restart'),
-    onSuccess: () => { toast.success('Бот перезапущен'); qc.invalidateQueries({ queryKey: ['bot-status'] }) },
+  const start = useMutation({
+    mutationFn: () => api.post('/bot/start'),
+    onSuccess: () => { toast.success('Бот запущен'); qc.invalidateQueries({ queryKey: ['bot-status'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const stop = useMutation({
     mutationFn: () => api.post('/bot/stop'),
     onSuccess: () => { toast.success('Бот остановлен'); qc.invalidateQueries({ queryKey: ['bot-status'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const restart = useMutation({
+    mutationFn: () => api.post('/bot/restart'),
+    onSuccess: () => { toast.success('Бот перезапущен'); qc.invalidateQueries({ queryKey: ['bot-status'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -69,6 +76,7 @@ export default function DashboardPage() {
   })
 
   const isOnline = status?.status === 'online'
+  const isTogglePending = start.isPending || stop.isPending
 
   return (
     <div className="flex flex-col gap-6">
@@ -95,15 +103,22 @@ export default function DashboardPage() {
             <div><p className="text-muted-foreground">Память</p><p className="font-medium">{formatMb(status?.memory)}</p></div>
           </div>
           <Separator />
-          <div className="flex gap-2 flex-wrap">
-            <Button size="sm" onClick={() => restart.mutate()} disabled={restart.isPending}>
-              {restart.isPending ? 'Перезапуск...' : '↺ Перезапустить бот'}
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Switch
+                checked={isOnline}
+                disabled={isTogglePending || statusLoading}
+                onCheckedChange={checked => checked ? start.mutate() : stop.mutate()}
+              />
+              <span className="text-sm">
+                {isTogglePending ? 'Подождите...' : isOnline ? 'Бот включён' : 'Бот выключен'}
+              </span>
+            </label>
+            <Button size="sm" variant="outline" onClick={() => restart.mutate()} disabled={restart.isPending || !isOnline}>
+              {restart.isPending ? 'Перезапуск...' : '↺ Перезапустить'}
             </Button>
-            <Button size="sm" variant="destructive" onClick={() => stop.mutate()} disabled={stop.isPending || !isOnline}>
-              ■ Остановить бот
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
-              {restartServer.isPending ? 'Перезапуск...' : '↺ Перезапустить сервер'}
+            <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => restartServer.mutate()} disabled={restartServer.isPending}>
+              {restartServer.isPending ? '...' : '↺ Сервер панели'}
             </Button>
           </div>
         </CardContent>

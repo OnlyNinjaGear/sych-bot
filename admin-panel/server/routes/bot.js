@@ -40,6 +40,15 @@ router.post('/restart', async (req, res) => {
   }
 });
 
+router.post('/start', async (req, res) => {
+  try {
+    await pm2(`pm2 start ${BOT_NAME}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/stop', async (req, res) => {
   try {
     await pm2(`pm2 stop ${BOT_NAME}`);
