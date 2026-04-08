@@ -5,10 +5,33 @@ const { BOT_ROOT } = require('../utils/paths');
 
 const BOT_NAME = 'toha-bot';
 const BOT_SCRIPT = path.join(BOT_ROOT, 'src/index.js');
+const DEV_PID_FILE = path.join(__dirname, '../.dev-pid');
 
-// Dev process (npm start) — живёт в памяти сервера
+// Dev process — PID сохраняем в файл, чтобы пережить рестарт сервера
 let devProc = null;
 let devStartedAt = null;
+
+function savePid(pid, startedAt) {
+  try { require('fs').writeFileSync(DEV_PID_FILE, JSON.stringify({ pid, startedAt })); } catch {}
+}
+function clearPid() {
+  try { require('fs').unlinkSync(DEV_PID_FILE); } catch {}
+}
+function isAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// Восстанавливаем состояние при старте сервера
+try {
+  const saved = JSON.parse(require('fs').readFileSync(DEV_PID_FILE, 'utf-8'));
+  if (saved.pid && isAlive(saved.pid)) {
+    devStartedAt = saved.startedAt;
+    // процесс жив, но у нас нет ссылки — помечаем только PID для статуса
+    devProc = { pid: saved.pid, kill: () => { try { process.kill(saved.pid); } catch {} clearPid(); } };
+  } else {
+    clearPid();
+  }
+} catch {}
 
 function pm2(cmd) {
   return new Promise((resolve, reject) => {
@@ -76,11 +99,13 @@ router.get('/dev-status', (req, res) => {
 
 router.post('/dev-start', (req, res) => {
   if (devProc) return res.status(400).json({ error: 'Уже запущен' });
-  devProc = spawn('npm', ['start'], { cwd: BOT_ROOT, stdio: 'pipe' });
+  const proc = spawn('npm', ['start'], { cwd: BOT_ROOT, stdio: 'pipe' });
   devStartedAt = Date.now();
-  devProc.on('exit', () => { devProc = null; devStartedAt = null; });
-  devProc.on('error', () => { devProc = null; devStartedAt = null; });
-  res.json({ ok: true, pid: devProc.pid });
+  devProc = proc;
+  savePid(proc.pid, devStartedAt);
+  proc.on('exit', () => { if (devProc === proc) { devProc = null; devStartedAt = null; clearPid(); } });
+  proc.on('error', () => { if (devProc === proc) { devProc = null; devStartedAt = null; clearPid(); } });
+  res.json({ ok: true, pid: proc.pid });
 });
 
 router.post('/dev-stop', (req, res) => {
@@ -88,6 +113,7 @@ router.post('/dev-stop', (req, res) => {
   devProc.kill();
   devProc = null;
   devStartedAt = null;
+  clearPid();
   res.json({ ok: true });
 });
 
