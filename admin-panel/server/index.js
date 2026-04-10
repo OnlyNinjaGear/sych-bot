@@ -30,6 +30,7 @@ app.use('/api/bot', requireAuth, require('./routes/bot'));
 app.use('/api/logs', requireAuth, require('./routes/logs'));
 app.use('/api/settings', requireAuth, require('./routes/settings'));
 app.use('/api/test', requireAuth, require('./routes/test'));
+app.use('/api/ollama', requireAuth, require('./routes/ollama'));
 
 // Serve built frontend in production
 const distPath = path.join(__dirname, '../dist');

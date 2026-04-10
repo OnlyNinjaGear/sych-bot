@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -52,6 +53,12 @@ interface BotSettings {
   bufferSize: number
   chatBufferSize: number
   aiProvider?: ProviderId
+  ollamaBaseUrl: string
+  ollamaModel: string
+  ollamaFallbackModels: string[]
+  ollamaMaxTokens: number
+  ollamaTemperature: number
+  ollamaContextMessages: number
 }
 
 function HotBadge() {
@@ -163,6 +170,13 @@ export default function BotSettingsPage() {
   const { data: configData } = useQuery<{ ai: { AI_PROVIDER: string } }>({
     queryKey: ['config'],
     queryFn: () => api.get('/config'),
+  })
+
+  const { data: ollamaData } = useQuery<{ models: string[] }>({
+    queryKey: ['ollama-models'],
+    queryFn: () => api.get('/ollama/models'),
+    retry: false,
+    staleTime: 30_000,
   })
 
   useEffect(() => { if (data) setS(structuredClone(data)) }, [data])
@@ -437,6 +451,113 @@ export default function BotSettingsPage() {
                       groups={{ models: NATIVE_MODELS }}
                     />
                   </Field>
+
+                  <Separator />
+
+                  <Field>
+                    <FieldLabel>🦙 Модели без цензуры (Ollama)</FieldLabel>
+                    <FieldDescription>
+                      Триггер: <code className="text-xs bg-muted px-1 rounded">тоха лама [запрос]</code> — запрос уходит в Ollama напрямую. Если недоступна — «лама сдохла».
+                    </FieldDescription>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-20 shrink-0">URL</span>
+                        <Input
+                          value={s.ollamaBaseUrl ?? 'http://192.168.0.29:11434/v1'}
+                          onChange={e => set('ollamaBaseUrl', e.target.value)}
+                          placeholder="http://192.168.0.29:11434/v1"
+                          className="font-mono text-sm"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-20 shrink-0">Primary</span>
+                        {ollamaData?.models?.length ? (
+                          <Select value={s.ollamaModel ?? ''} onValueChange={v => set('ollamaModel', v)}>
+                            <SelectTrigger className="font-mono text-sm flex-1">
+                              <SelectValue placeholder="выбери модель" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ollamaData.models.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={s.ollamaModel ?? ''}
+                            onChange={e => set('ollamaModel', e.target.value)}
+                            placeholder="huihui_ai/qwen3.5-abliterated:35b"
+                            className="font-mono text-sm"
+                          />
+                        )}
+                      </div>
+                      {(s.ollamaFallbackModels ?? []).map((m, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-20 shrink-0">Fallback {i + 1}</span>
+                          {ollamaData?.models?.length ? (
+                            <Select value={m} onValueChange={v => {
+                              const next = [...(s.ollamaFallbackModels ?? [])]
+                              next[i] = v
+                              set('ollamaFallbackModels', next)
+                            }}>
+                              <SelectTrigger className="font-mono text-sm flex-1">
+                                <SelectValue placeholder="выбери модель" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ollamaData.models.map(mod => <SelectItem key={mod} value={mod}>{mod}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              value={m}
+                              onChange={e => {
+                                const next = [...(s.ollamaFallbackModels ?? [])]
+                                next[i] = e.target.value
+                                set('ollamaFallbackModels', next)
+                              }}
+                              placeholder="другая-модель:tag"
+                              className="font-mono text-sm flex-1"
+                            />
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground shrink-0"
+                            onClick={() => set('ollamaFallbackModels', (s.ollamaFallbackModels ?? []).filter((_, j) => j !== i))}
+                          >✕</Button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="self-start"
+                        onClick={() => set('ollamaFallbackModels', [...(s.ollamaFallbackModels ?? []), ''])}
+                      >+ Добавить фолбэк</Button>
+                    </div>
+                  </Field>
+
+                  <NumberInput
+                    label={`Макс. токенов ответа — ${s.ollamaMaxTokens ?? 8192}`}
+                    hint="Лимит длины ответа от Ollama/LM Studio. 8192 = ~3000 слов"
+                    value={s.ollamaMaxTokens ?? 8192}
+                    onChange={v => set('ollamaMaxTokens', v)}
+                    min={256}
+                    max={32768}
+                  />
+                  <NumberInput
+                    label={`Температура — ${s.ollamaTemperature ?? 0.95}`}
+                    hint="Креативность. 0.5 = сдержанный, 0.95 = живой, 1.5 = дичь"
+                    value={s.ollamaTemperature ?? 0.95}
+                    onChange={v => set('ollamaTemperature', v)}
+                    min={0}
+                    max={2}
+                  />
+                  <NumberInput
+                    label={`Контекст чата — ${s.ollamaContextMessages ?? 3} сообщений`}
+                    hint="Сколько последних сообщений отправлять в Лама-режиме. Меньше = быстрее"
+                    value={s.ollamaContextMessages ?? 3}
+                    onChange={v => set('ollamaContextMessages', v)}
+                    min={0}
+                    max={20}
+                  />
 
                 </CardContent>
               </Card>
