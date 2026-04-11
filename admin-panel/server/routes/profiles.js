@@ -49,6 +49,23 @@ router.put('/:chatId/:userId/reputation', (req, res) => {
   }
 });
 
+// Обновить профиль чата
+router.put('/chats/:chatId', (req, res) => {
+  try {
+    const chatProfiles = JSON.parse(fs.readFileSync(CHAT_PROFILES_PATH, 'utf-8'));
+    const { topic, facts, style } = req.body;
+    if (!chatProfiles[req.params.chatId]) chatProfiles[req.params.chatId] = {};
+    if (topic !== undefined) chatProfiles[req.params.chatId].topic = String(topic).substring(0, 200);
+    if (facts !== undefined) chatProfiles[req.params.chatId].facts = String(facts).substring(0, 500);
+    if (style !== undefined) chatProfiles[req.params.chatId].style = String(style).substring(0, 100);
+    chatProfiles[req.params.chatId].lastUpdated = Date.now();
+    fs.writeFileSync(CHAT_PROFILES_PATH, JSON.stringify(chatProfiles, null, 2));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Сбросить профиль юзера в чате (BEFORE /:chatId to avoid matching)
 router.delete('/:chatId/:userId', (req, res) => {
   try {

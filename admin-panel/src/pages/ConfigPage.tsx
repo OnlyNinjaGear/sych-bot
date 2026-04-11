@@ -20,7 +20,7 @@ interface Config {
   telegram: { TELEGRAM_BOT_TOKEN: string; ADMIN_USER_ID: string }
   ai: { AI_PROVIDER: string; AI_API_KEY: string; AI_BASE_URL: string }
   search: { SEARCH_PROVIDER: string; TAVILY_API_KEY: string }
-  gemini: { primary: string; additional: string[] }
+  gemini: { primary: string; additional: string[]; imageKey: string }
   admin: { ADMIN_PANEL_PASSWORD: string; ADMIN_PANEL_PORT: string; ADMIN_PANEL_SECRET: string }
 }
 
@@ -148,8 +148,10 @@ export default function ConfigPage() {
 
       const prev = savedConfig.current
       const targets: RestartTarget[] = []
-      const botSections = ['telegram', 'ai', 'search'] as const
-      if (botSections.some(s => JSON.stringify(cfg[s]) !== JSON.stringify(prev?.[s]))) targets.push('bot')
+      const botChanged =
+        ['telegram', 'ai', 'search'].some(s => JSON.stringify(cfg[s as keyof Config]) !== JSON.stringify(prev?.[s as keyof Config])) ||
+        cfg.gemini.imageKey !== prev?.gemini.imageKey
+      if (botChanged) targets.push('bot')
       if (JSON.stringify(cfg.admin) !== JSON.stringify(prev?.admin)) targets.push('server')
       setRestartTargets(targets)
     },
@@ -385,6 +387,21 @@ export default function ConfigPage() {
                 }
               />
             ))}
+
+            <div className="flex items-center gap-3 rounded-lg border border-dashed p-3">
+              <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-muted-foreground">Ключ для генерации изображений</p>
+                  <Badge variant="secondary" className="text-xs">🍌 Nano Banana / Imagen 4</Badge>
+                </div>
+                <MaskedInput
+                  value={config.gemini.imageKey}
+                  onChange={v => setConfig(c => c ? { ...c, gemini: { ...c.gemini, imageKey: v } } : c)}
+                  placeholder="AIzaSy... (платный аккаунт)"
+                />
+                <p className="text-xs text-muted-foreground">Отдельный платный ключ только для генерации/редактирования картинок. Бесплатные ключи для этого не подходят.</p>
+              </div>
+            </div>
 
             {showAddKey ? (
               <div className="grid grid-cols-4 gap-2">

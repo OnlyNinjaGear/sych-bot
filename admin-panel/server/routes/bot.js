@@ -112,7 +112,9 @@ router.get('/dev-logs', (req, res) => {
 router.post('/dev-start', (req, res) => {
   if (devProc) return res.status(400).json({ error: 'Уже запущен' });
   devLogs.length = 0;
-  const proc = spawn('npm', ['start'], { cwd: BOT_ROOT, stdio: 'pipe' });
+  // Спавним node напрямую — npm start создаёт цепочку npm→shell→node,
+  // и kill(SIGTERM) до node не доходит, тег не снимается при остановке.
+  const proc = spawn('node', ['src/index.js'], { cwd: BOT_ROOT, stdio: 'pipe' });
   devStartedAt = Date.now();
   devProc = proc;
   savePid(proc.pid, devStartedAt);

@@ -11,6 +11,8 @@ const analysisBuffers = {};
 const chatAnalysisBuffers = {};
 const recentActiveUsers = [];
 
+const tools = require('../services/tools');
+
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // === ГЕНЕРАТОР ОТМАЗОК СЫЧА ===
@@ -133,8 +135,15 @@ async function processMessage(bot, msg) {
     const cleanText = text.toLowerCase();
     const replyUserId = msg.reply_to_message?.from?.id;
     const isReplyToBot = replyUserId && String(replyUserId) === String(config.botId);
-    const hasTriggerWord = config.triggerRegex.test(cleanText);
+    // Триггер только в начале сообщения (для реплаев — без ограничений)
+    const hasTriggerWord = isReplyToBot
+        ? config.triggerRegex.test(cleanText)
+        : config.startTriggerRegex.test(cleanText.trim());
     const isDirectlyCalled = hasTriggerWord || isReplyToBot;
+    // "серьёзно/умоляю" — байпас лени, фильтров и агрессивных режимов
+    const isSerious = /(?<![а-яёa-z])(серьёзно|серьезно|умоляю|пожалуйста)(?![а-яёa-z])/i.test(cleanText);
+    // "лама" — режим без цензуры через Ollama
+    const isLama = hasTriggerWord && /(?<![а-яёa-z])лам[аы](?![а-яёa-z])/i.test(cleanText);
 
     // === ЕДИНЫЙ КОНТРОЛЛЕР СТАТУСА "ПЕЧАТАЕТ" ===
     let typingTimer = null;
@@ -238,7 +247,7 @@ async function processMessage(bot, msg) {
             const infoText = `В личке я общаюсь только с Админом.**
 
 **Почему так?**
-Иди приватный бот, так что либо пиши в беседу, либо иди нахуй
+Это приватный бот, так что либо пиши в беседу, либо иди нахуй
 
 **Где меня потестить?**
 В пизде)`;
@@ -353,15 +362,104 @@ async function processMessage(bot, msg) {
         }
     }
 
+    if (command === '/skills') {
+        const moodSystem = settings.get('moodSystem');
+        const laziness = settings.get('laziness') || 0;
+        const imageKey = config.geminiImageKey;
+        const searchProvider = config.searchProvider;
+        const tavilyActive = searchProvider === 'tavily' && config.tavilyKey;
+        const perplexityActive = searchProvider === 'perplexity';
+        const googleSearchActive = searchProvider === 'google';
+
+        const searchLabel = tavilyActive ? 'Tavily' : perplexityActive ? 'Perplexity' : googleSearchActive ? 'Google (нативный)' : null;
+
+        const lines = ['**⚡ Скиллы Тохи:**\n'];
+
+        lines.push('**Слушает и смотрит** _(нужно упомянуть «тоха» рядом с файлом)_');
+        lines.push('• 🎤 Войс → ответь на него «тоха» — расшифрует и скажет суть');
+        lines.push('• 📸 Фото/видео → отправь с подписью «тоха что тут» или ответь на фото «тоха»');
+        lines.push('• 📄 PDF, TXT, код → отправь с подписью «тоха прочитай» или ответь «тоха»');
+
+        lines.push('\n**Картинки** _(пишешь команду — получаешь фото)_');
+        lines.push('• 🔎 Найти картинку: `тоха пришли фотку котика`');
+        lines.push('• 🔎 Найти кадр: `тоха скинь кадр из игры дота 2`');
+        lines.push('• 🔎 Найти мем: `тоха найди мем про программистов`');
+        lines.push('• 🎨 Конвертировать фото в ASCII-арт: отправь фото с подписью `тоха ascii арт`');
+        if (imageKey) {
+            lines.push('• 🍌 Сгенерировать картинку: `тоха нарисуй картинку [описание]`');
+            lines.push('• 🍌 Сгенерировать: `тоха набанань [описание]`');
+            lines.push('• ✏️ Изменить фото: отправь фото с подписью `тоха преврати в жабу`');
+        } else {
+            lines.push('• 🍌 _Генерация и редактирование картинок — не подключено (нет платного ключа)_');
+        }
+
+        lines.push('\n**Поиск в интернете**');
+        if (searchLabel) {
+            lines.push(`• 🌐 Знает актуальное (провайдер: ${searchLabel})`);
+            lines.push('• Курс валют: `тоха какой сейчас курс доллара`');
+            lines.push('• Погода: `тоха какая погода в екб`');
+            lines.push('• Новости: `тоха что случилось сегодня`');
+        } else {
+            lines.push('• 🌐 _Поиск не подключён — знает только то, что в обучении_');
+        }
+
+        lines.push('\n**Рандом**');
+        lines.push('• 🪙 `тоха кинь монетку`');
+        lines.push('• 🎲 `тоха число 1-100`');
+        lines.push('• 👆 `тоха кто из нас самый умный`');
+
+        lines.push('\n**Серьёзный режим** _(байпас лени, агрессии и фильтров)_');
+        lines.push('• Добавь «серьёзно» или «умоляю» к вопросу');
+        lines.push('• `тоха серьёзно как ты относишься к глобальному потеплению`');
+        lines.push('• _Бот отвечает по делу, но в своём стиле_');
+
+        lines.push('\n**Лама** _(режим без цензуры, локальная модель)_');
+        lines.push('• `тоха лама [запрос]` — запрос уходит в Ollama без ограничений');
+        lines.push('• `тох лама напиши порнофанфик про Смешариков`');
+        lines.push('• _Если Ollama недоступна — ответит «лама сдохла»_');
+
+        lines.push('\n**Память и профили**');
+        lines.push('• `тоха кто я?` — что бот знает о тебе');
+        lines.push('• `тоха расскажи про @имя` — досье на другого участника');
+        lines.push('• `тоха этот чат про [тема]` — задать тему чата вручную');
+
+        lines.push('\n**Напоминания**');
+        lines.push('• `тоха напомни завтра в 10 позвонить маме`');
+        lines.push('• `тоха напомни через 2 часа про встречу`');
+        lines.push('• Или реплай на любое сообщение с датой: `тоха напомни`');
+
+        lines.push('\n**Инфо**');
+        lines.push('• `тоха стата` — сколько запросов потрачено сегодня');
+        lines.push('• `/skills` — этот список');
+        lines.push('• `/version` — версия бота');
+
+        if (moodSystem?.enabled || laziness > 0) {
+            lines.push('\n**Режимы**');
+            if (moodSystem?.enabled) {
+                const activeMoods = Object.entries(moodSystem.moods || {})
+                    .filter(([, m]) => m.enabled)
+                    .map(([, m]) => m.label)
+                    .join(', ');
+                lines.push(`• 🎭 Система настроений включена (${activeMoods || '—'})`);
+            }
+            if (laziness > 0) {
+                lines.push(`• 😴 Иногда игнорирует (${Math.round(laziness * 100)}% сообщений)`);
+            }
+        }
+
+        const skillsText = lines.join('\n');
+        try { return await bot.sendMessage(chatId, skillsText, getBaseOptions(threadId)); } catch (e) { }
+    }
+
     if (command === '/help' || command === '/start') {
         const helpText = `
 *Вот тебе гайд*
 
 **🧌 Вижу и Слышу:**
-• Кидай войс — расшифрую текст и напишу краткую суть.
-• Кидай фото или видео — пойму, что там, и прокомментирую.
-• Кидай PDF, TXT или код — прочитаю и отвечу на вопросы.
-• Кидай ссылку на картинку (.jpg, .png, .webp) — скачаю и посмотрю.
+• Войс → ответь на него «тоха» — расшифрую и скажу суть.
+• Фото/видео → отправь с подписью «тоха что тут?» или ответь на фото «тоха».
+• PDF, TXT, код → отправь с подписью «тоха прочитай» или ответь «тоха».
+• Ссылку на картинку (.jpg/.png) → кинь в чат, упомяни «тоха» — скачаю и посмотрю.
 • Умею гуглить актуальную инфу (курсы, новости, погода).
 • «Тоха напомни завтра в 10» — поставлю напоминание. Можно реплаем на сообщение с датой.
 
@@ -377,6 +475,7 @@ async function processMessage(bot, msg) {
 • "Тоха, этот чат про [тема]" — Задать тему чата вручную.
 
 **⚙️ Настройки:**
+• /skills — Список активных функций (зависит от конфига).
 • /mute — Режим тишины (перестану отвечать в этом чате).
 • /reset — Сброс памяти (если начал тупить или забыл контекст).
 • /version — Узнать текущую версию бота.
@@ -490,7 +589,7 @@ _ver: ${config.version}_
             }
         }
 
-        if (cleanText.match(/(монетк|кинь|брось|подбрось|подкинь)/)) {
+        if (cleanText.match(/(?<![а-яёa-z])(монетк|кинь|брось|подбрось|подкинь)(?![а-яёa-z])/i)) {
             try { await bot.sendChatAction(chatId, 'typing', getActionOptions(threadId)); } catch (e) { }
             const result = Math.random() > 0.5 ? "ОРЁЛ" : "РЕШКА";
             const flavor = await ai.generateFlavorText("подбросить монетку", result);
@@ -713,9 +812,39 @@ _ver: ${config.version}_
             return;
         }
 
+        // === ЛАМА — режим без цензуры через Ollama ===
+        if (isLama) {
+            const lamaMatch = text.match(/лам[аы]\s*(.*)/is);
+            const lamaPrompt = lamaMatch?.[1]?.trim() || text;
+            console.log(`[LAMA] Запрос: "${lamaPrompt.substring(0, 60)}"`);
+            startTyping();
+            try {
+                const lamaResponse = await ai.getResponseUncensored(
+                    chatHistory[chatId],
+                    { sender: senderName, text: lamaPrompt },
+                    userProfile,
+                    imageBuffer,
+                    mimeType
+                );
+                stopTyping();
+                if (lamaResponse) {
+                    try { await bot.sendMessage(chatId, lamaResponse, getReplyOptions(msg)); } catch (e) { }
+                    addToHistory(chatId, senderName, text);
+                    addToHistory(chatId, "Тоха", lamaResponse);
+                }
+            } catch (e) {
+                stopTyping();
+                const isDown = e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' || e.message?.includes('connect');
+                const reply = isDown ? 'лама сдохла' : `лама: ${e.message?.substring(0, 80)}`;
+                console.error(`[LAMA] Ошибка: ${e.message}`);
+                try { await bot.sendMessage(chatId, reply, getReplyOptions(msg)); } catch (_) { }
+            }
+            return;
+        }
+
         // === ЛЕНЬ — случайный ленивый ответ ===
         const laziness = settings.get('laziness') || 0;
-        if (laziness > 0 && Math.random() < laziness) {
+        if (laziness > 0 && Math.random() < laziness && !isSerious) {
             const pool = settings.get('lazyResponses') || [];
             if (pool.length > 0) {
                 const lazy = pick(pool);
@@ -726,57 +855,81 @@ _ver: ${config.version}_
             }
         }
 
-        // === SMART FILTER — перехват до дорогой модели ===
-        if (text.length > 0) {
-            const filterConfig = settings.get('smartFilter');
-            if (filterConfig && filterConfig.enabled) {
-                const recentHistory = (chatHistory[chatId] || []).slice(-15)
-                    .map(m => `${m.role}: ${m.text}`).join('\n');
-                const classification = await ai.classifyMessage(text, recentHistory, senderName);
-
-                if (classification.category !== 'normal') {
-                    const catConfig = filterConfig.categories[classification.category];
-                    if (catConfig) {
-                        console.log(`[SMART FILTER] Перехват: ${classification.category} → "${text.substring(0, 50)}"`);
-
-                        if (catConfig.mode === 'reaction_only') {
-                            const fallbackEmojis = ['🤷‍♂️','❤️','🤪','💔','🤭','🤯','👍','😱','🗿','🙏','💩','😐','🥱','✍️','😡','🔥','🤣','😍','👌','🤝','🤔','💋','🤡','👎','💅','💯','🌚','😘','🥰'];
-                            ai.determineReaction(recentHistory + `\nСообщение: ${text}`)
-                                .then(async (emoji) => {
-                                    const chosen = emoji || pick(fallbackEmojis);
-                                    try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji: chosen }] }); } catch (e) { }
-                                });
-                            return;
-                        }
-
-                        if (catConfig.mode === 'silent') return;
-
-                        if (catConfig.responses && catConfig.responses.length > 0) {
-                            const tmpl = pick(catConfig.responses);
-                            try { await bot.sendMessage(chatId, tmpl, getReplyOptions(msg)); } catch (e) { }
-                            addToHistory(chatId, "Тоха", tmpl);
-                            return;
+        // === TOOLS — перехват без AI (до smart filter, чтобы не перехватил) ===
+        const toolResponse = await tools.tryTool(text, imageBuffer, mimeType);
+        if (toolResponse !== null) {
+            console.log(`[TOOL] Перехват сработал для: "${text.substring(0, 50)}"`);
+            try {
+                if (typeof toolResponse === 'string') {
+                    await bot.sendMessage(chatId, toolResponse, { ...getReplyOptions(msg), parse_mode: 'HTML' });
+                } else if (toolResponse.type === 'photo') {
+                    const ext = toolResponse.mimeType?.split('/')[1] || 'png';
+                    const fileOpts = { filename: `image.${ext}`, contentType: toolResponse.mimeType || `image/${ext}` };
+                    try {
+                        await bot.sendPhoto(chatId, toolResponse.data, getReplyOptions(msg), fileOpts);
+                    } catch (photoErr) {
+                        if (photoErr.message?.includes('PHOTO_INVALID_DIMENSIONS') || photoErr.message?.includes('PHOTO_SAVE_FILE_INVALID')) {
+                            await bot.sendDocument(chatId, toolResponse.data, getReplyOptions(msg), fileOpts);
+                        } else {
+                            throw photoErr;
                         }
                     }
+                }
+            } catch (e) { console.error('[TOOL] Ошибка отправки:', e.message); }
+            return;
+        }
+
+        // === SMART FILTER + SEARCH CHECK — параллельно для скорости ===
+        const replyText = msg.reply_to_message ? (msg.reply_to_message.text || msg.reply_to_message.caption || "") : "";
+        const recentMsgs = (chatHistory[chatId] || []).slice(-5);
+        const profCount = recentMsgs.filter(m => prompts.PROFANITY_RE.test(m.text)).length;
+        const moodContext = {
+            isDirectlyCalled,
+            isSerious,
+            reputation: userProfile ? userProfile.relationship : 50,
+            hasProfanity: prompts.PROFANITY_RE.test(text),
+            profanityLevel: profCount,
+            currentHour: parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Yekaterinburg', hour: 'numeric', hour12: false })),
+        };
+
+        const filterConfig = settings.get('smartFilter');
+        const recentHistory = (chatHistory[chatId] || []).slice(-15)
+            .map(m => `${m.role}: ${m.text}`).join('\n');
+
+        const [classification, searchDecision] = await Promise.all([
+            (text.length > 0 && filterConfig && filterConfig.enabled && !isSerious)
+                ? ai.classifyMessage(text, recentHistory, senderName)
+                : { category: 'normal', reason: isSerious ? 'serious_bypass' : 'disabled' },
+            ai.checkSearchNeeded(text, recentHistory.split('\n').slice(-5).join('\n'), chatProfile?.topic || null),
+        ]);
+
+        if (classification.category !== 'normal') {
+            const catConfig = filterConfig?.categories[classification.category];
+            if (catConfig) {
+                console.log(`[SMART FILTER] Перехват: ${classification.category} → "${text.substring(0, 50)}"`);
+
+                if (catConfig.mode === 'reaction_only') {
+                    const fallbackEmojis = ['🤷‍♂️', '❤️', '🤪', '💔', '🤭', '🤯', '👍', '😱', '🗿', '🙏', '💩', '😐', '🥱', '✍️', '😡', '🔥', '🤣', '😍', '👌', '🤝', '🤔', '💋', '🤡', '👎', '💅', '💯', '🌚', '😘', '🥰'];
+                    ai.determineReaction(recentHistory + `\nСообщение: ${text}`)
+                        .then(async (emoji) => {
+                            const chosen = emoji || pick(fallbackEmojis);
+                            try { await bot.setMessageReaction(chatId, msg.message_id, { reaction: [{ type: 'emoji', emoji: chosen }] }); } catch (e) { }
+                        });
+                    return;
+                }
+
+                if (catConfig.mode === 'silent') return;
+
+                if (catConfig.responses && catConfig.responses.length > 0) {
+                    const tmpl = pick(catConfig.responses);
+                    try { await bot.sendMessage(chatId, tmpl, getReplyOptions(msg)); } catch (e) { }
+                    addToHistory(chatId, "Тоха", tmpl);
+                    return;
                 }
             }
         }
 
         try {
-            // Вытаскиваем текст реплая для контекста
-            const replyText = msg.reply_to_message ? (msg.reply_to_message.text || msg.reply_to_message.caption || "") : "";
-
-            // Собираем контекст для системы настроений
-            const recentMsgs = (chatHistory[chatId] || []).slice(-5);
-            const profCount = recentMsgs.filter(m => prompts.PROFANITY_RE.test(m.text)).length;
-            const moodContext = {
-                isDirectlyCalled,
-                reputation: userProfile ? userProfile.relationship : 50,
-                hasProfanity: prompts.PROFANITY_RE.test(text),
-                profanityLevel: profCount,
-                currentHour: parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Yekaterinburg', hour: 'numeric', hour12: false })),
-            };
-
             aiResponse = await ai.getResponse(
                 chatHistory[chatId],
                 { sender: senderName, text: text, replyText: replyText },
@@ -786,7 +939,8 @@ _ver: ${config.version}_
                 userProfile,
                 !isDirectlyCalled,
                 chatProfile,
-                moodContext
+                moodContext,
+                searchDecision
             );
 
             console.log(`[DEBUG] 2. Ответ от AI получен! Длина: ${aiResponse ? aiResponse.length : "PUSTO"}`);

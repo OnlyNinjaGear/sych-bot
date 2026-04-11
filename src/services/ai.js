@@ -10,25 +10,13 @@ const storage = require('./storage');
 
 class AiService {
     constructor() {
-        // 1. Инициализация OpenAI-совместимого клиента
-        // Если провайдер Google и есть ключи — используем все ключи с ротацией
-        const isGoogleProvider = (config.aiBaseUrl || '').includes('generativelanguage.googleapis.com');
-        const clientHeaders = { "HTTP-Referer": "https://github.com/Veta-one/toha-bot", "X-Title": "Toha Bot" };
-
-        if (isGoogleProvider && config.geminiKeys.length > 0) {
-            this.openaiClients = config.geminiKeys.map(key => new OpenAI({
-                baseURL: config.aiBaseUrl, apiKey: key, defaultHeaders: clientHeaders
-            }));
-            console.log(`[AI] Google API: ротация через ${this.openaiClients.length} ключей`);
-        } else if (config.aiKey) {
-            this.openaiClients = [new OpenAI({
-                baseURL: config.aiBaseUrl, apiKey: config.aiKey, defaultHeaders: clientHeaders
-            })];
-        } else {
-            this.openaiClients = [];
-        }
+        this.keys = config.geminiKeys;
         this.openaiIdx = 0;
-        this.openai = this.openaiClients[0] || null;
+        this.openaiClients = [];
+        this.openai = null;
+
+        // 1. Инициализация OpenAI-совместимого клиента (с учётом aiProvider из settings)
+        this._initOpenAIClients();
 
         // 2. Инициализация Tavily
         this.tavilyClient = config.tavilyKey ? tavily({ apiKey: config.tavilyKey }) : null;
@@ -36,7 +24,6 @@ class AiService {
         // 3. Google Native (Fallback)
         this.keyIndex = 0;
         this.modelIndex = 0;
-        this.keys = config.geminiKeys;
         this.usingFallback = false;
         this.bot = null;
 
@@ -48,32 +35,130 @@ class AiService {
         this.watchEnvFile();
     }
 
-    rotateOpenAI() {
-        if (this.openaiClients.length <= 1) return;
-        this.openaiIdx = (this.openaiIdx + 1) % this.openaiClients.length;
-        this.openai = this.openaiClients[this.openaiIdx];
-        console.log(`[AI] Ротация API ключа → #${this.openaiIdx + 1}`);
-    }
-
     stripThinking(text) {
         return text.replace(/<thought>[\s\S]*?<\/thought>/g, '').replace(/^thought[\s\S]*?\n\n/i, '').trim();
     }
 
+    // Убирает артефакты Google Search tool из ответа нативного Gemini:
+    // print(google_search.search(...)) и JSON-фрагменты {"query":"..."} и т.п.
+    stripSearchArtifacts(text) {
+        return text
+            .split('\n')
+            .filter(line => {
+                const t = line.trim();
+                if (!t) return true;
+                if (t.includes('google_search.search(')) return false;
+                // Только JSON-артефакты от Google Search tool: строки вида "},{"query":"..."}]}
+                if (/^[}\]"',\s]*\{"query"\s*:/.test(t)) return false;
+                if (/\{"query"\s*:[^}]+\}[}\]]*$/.test(t) && t.startsWith('}')) return false;
+                return true;
+            })
+            .join('\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+
+    // Валидация ответа: ловит сломанные ответы с повторяющимся мусором
+    validateResponse(text) {
+        if (!text || typeof text !== 'string') return { valid: false, reason: 'empty' };
+        const trimmed = text.trim();
+        if (trimmed.length === 0) return { valid: false, reason: 'empty after trim' };
+        if (trimmed.length > 4000) return { valid: false, reason: `too long (${trimmed.length})` };
+
+        // Детектор повторяющегося мусора: один и тот же символ/короткая последовательность подряд 50+ раз
+        if (/(.{1,4})\1{40,}/.test(trimmed)) return { valid: false, reason: 'repetitive garbage' };
+
+        // Детектор катастрофы: много одинаковых непечатных или одинаковых символов
+        const charCounts = {};
+        for (const ch of trimmed) charCounts[ch] = (charCounts[ch] || 0) + 1;
+        const maxCharRatio = Math.max(...Object.values(charCounts)) / trimmed.length;
+        if (trimmed.length > 200 && maxCharRatio > 0.4) return { valid: false, reason: `single char dominates (${(maxCharRatio * 100).toFixed(0)}%)` };
+
+        return { valid: true };
+    }
+
     handleApiError(e) {
-        if (e.status === 429 || e.message?.includes('429')) this.rotateOpenAI();
+        if (e.status === 429 || e.message?.includes('429')) {
+            // Помечаем cooldown для текущего OpenAI ключа (по индексу)
+            if (!this.openaiCooldowns) this.openaiCooldowns = {};
+            this.openaiCooldowns[this.openaiIdx] = Date.now() + 60000;
+            this.rotateOpenAI();
+        }
+    }
+
+    rotateOpenAI() {
+        if (this.openaiClients.length <= 1) return;
+        // Найти следующий ключ не на cooldown
+        const now = Date.now();
+        const cooldowns = this.openaiCooldowns || {};
+        for (let i = 1; i <= this.openaiClients.length; i++) {
+            const next = (this.openaiIdx + i) % this.openaiClients.length;
+            if (!cooldowns[next] || cooldowns[next] < now) {
+                this.openaiIdx = next;
+                this.openai = this.openaiClients[next];
+                console.log(`[AI] Ротация API ключа → #${next + 1}`);
+                return;
+            }
+        }
+        // Все на cooldown — всё равно берём следующий
+        this.openaiIdx = (this.openaiIdx + 1) % this.openaiClients.length;
+        this.openai = this.openaiClients[this.openaiIdx];
+        console.log(`[AI] Все ключи на cooldown, форсирую #${this.openaiIdx + 1}`);
+    }
+
+    // Возвращает { baseUrl, isGoogle } с учётом settings.aiProvider
+    _resolveProvider() {
+        const provider = settings.get('aiProvider');
+        if (provider === 'google' && this.keys.length > 0) {
+            return { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', isGoogle: true };
+        }
+        const baseUrl = config.aiBaseUrl || 'https://openrouter.ai/api/v1';
+        return { baseUrl, isGoogle: baseUrl.includes('generativelanguage.googleapis.com') };
+    }
+
+    _providerLabel() {
+        return this._resolveProvider().isGoogle ? 'Google API' : 'OpenRouter';
+    }
+
+    _initOpenAIClients() {
+        const { baseUrl, isGoogle } = this._resolveProvider();
+        const clientHeaders = { "HTTP-Referer": "https://github.com/Veta-one/toha-bot", "X-Title": "Toha Bot" };
+        const prevCount = this.openaiClients.length;
+
+        if (isGoogle && this.keys.length > 0) {
+            this.openaiClients = this.keys.map(key => new OpenAI({ baseURL: baseUrl, apiKey: key, defaultHeaders: clientHeaders }));
+            console.log(`[AI] Google API: ротация через ${this.openaiClients.length} ключей`);
+        } else if (config.aiKey) {
+            this.openaiClients = [new OpenAI({ baseURL: baseUrl, apiKey: config.aiKey, defaultHeaders: clientHeaders })];
+            console.log(`[AI] OpenRouter API`);
+        } else {
+            this.openaiClients = [];
+        }
+        // Reset rotation only when key count changes; preserve position on unrelated settings changes
+        if (this.openaiClients.length !== prevCount || this.openaiIdx >= this.openaiClients.length) {
+            this.openaiIdx = 0;
+        }
+        this.openai = this.openaiClients[this.openaiIdx] || null;
     }
 
     watchEnvFile() {
-        let debounceTimer = null;
+        let envDebounce = null;
+        let settingsDebounce = null;
         try {
             fs.watch(config.ENV_PATH, () => {
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => this.reloadKeys(), 500);
+                clearTimeout(envDebounce);
+                envDebounce = setTimeout(() => this.reloadKeys(), 500);
             });
             console.log('[CONFIG WATCH] Горячая замена ключей Gemini активна');
         } catch (e) {
             console.warn('[CONFIG WATCH] Не удалось запустить слежку за .env:', e.message);
         }
+        try {
+            fs.watch(settings.SETTINGS_PATH, () => {
+                clearTimeout(settingsDebounce);
+                settingsDebounce = setTimeout(() => this._initOpenAIClients(), 600);
+            });
+        } catch (e) { /* ignore */ }
     }
 
     reloadKeys() {
@@ -84,6 +169,7 @@ class AiService {
         this.keyIndex = 0;
         this.modelIndex = 0;
         storage.initGoogleStats(this.keys.length);
+        this._initOpenAIClients();
         if (this.keys.length > 0) this.initNativeModel();
     }
 
@@ -100,11 +186,13 @@ class AiService {
     // Сброс статистики в полночь (проверка через storage)
     resetStatsIfNeeded() {
         const wasReset = storage.resetStatsIfNeeded();
-        if (wasReset && this.usingFallback) {
-            this.usingFallback = false;
-            this.keyIndex = 0;
-            this.initNativeModel();
-            this.notifyAdmin("🌙 **Новый день!**\nЛимиты сброшены. Возврат в основной режим.");
+        if (wasReset) {
+            if (this.usingFallback) {
+                this.usingFallback = false;
+                this.keyIndex = 0;
+                this.initNativeModel();
+                this.notifyAdmin("🌙 **Новый день!**\nЛимиты сброшены. Возврат в основной режим.");
+            }
         }
     }
 
@@ -165,6 +253,7 @@ class AiService {
         const nativeModels = settings.get('nativeModels');
         const modelName = nativeModels[this.modelIndex] || nativeModels[0];
         console.log(`[AI INIT] Native Key #${this.keyIndex + 1} | Model: ${modelName} (${this.modelIndex + 1}/${nativeModels.length})`);
+        storage.setActiveGemini(this.keyIndex, modelName);
 
         this.nativeModel = genAI.getGenerativeModel({
             model: modelName,
@@ -175,9 +264,63 @@ class AiService {
         });
     }
 
-    rotateNativeKey() {
-        storage.markGoogleKeyExhausted(this.keyIndex);
-        console.log(`[AI] Native Key #${this.keyIndex + 1} исчерпан.`);
+    // Определить тип 429: RPM (retry-able) или RPD/quota (permanent)
+    _is429RateLimit(error) {
+        const msg = error?.message || '';
+        const low = msg.toLowerCase();
+        // Google error message содержит quota_id с "PerMinute"/"PerDay"
+        if (/perminute|per_minute|per minute|permin\b/i.test(msg)) return true;
+        if (/perday|per_day|per day|daily/i.test(msg)) return false;
+        // rate limit явно говорит что это RPM
+        if (low.includes('rate limit')) return true;
+        // По умолчанию считаем RPM (временная) чтобы не убивать ключи зря
+        return true;
+    }
+
+    // Извлечь реальный лимит из 429-ошибки Google и сохранить
+    _extractAndStoreLimit(error, modelName) {
+        const msg = error?.message || '';
+        if (!msg) return;
+
+        // Ищем quota_id (что за лимит) и quota_value (сколько)
+        const quotaIdMatch = msg.match(/quota[_-]?id["']?\s*[:=]\s*["']?([A-Za-z0-9_]+)/i);
+        const quotaValueMatch = msg.match(/quota[_-]?value["']?\s*[:=]\s*["']?(\d+)/i);
+
+        let quotaType = null;
+        if (quotaIdMatch) {
+            const id = quotaIdMatch[1];
+            if (/PerDay/i.test(id)) quotaType = 'RPD';
+            else if (/PerMinute/i.test(id)) quotaType = 'RPM';
+            else if (/TokenPerMinute|TokensPerMinute/i.test(id)) quotaType = 'TPM';
+        }
+
+        // Fallback: regex на текст ошибки
+        if (!quotaType) {
+            if (/per day/i.test(msg)) quotaType = 'RPD';
+            else if (/per minute/i.test(msg)) quotaType = 'RPM';
+        }
+
+        const quotaValue = quotaValueMatch ? parseInt(quotaValueMatch[1]) : null;
+
+        if (modelName && quotaType && quotaValue) {
+            storage.setDetectedLimit(modelName, quotaType, quotaValue);
+            console.log(`[AI] Detected real limit: ${modelName} ${quotaType}=${quotaValue}`);
+        }
+    }
+
+    rotateNativeKey(isRateLimit = true) {
+        if (!isRateLimit) {
+            // Реальное исчерпание RPD — помечаем надолго
+            storage.markGoogleKeyExhausted(this.keyIndex);
+            console.log(`[AI] Native Key #${this.keyIndex + 1} — RPD исчерпан до полуночи.`);
+        } else {
+            // RPM — временный cooldown, в stats показываем но не помечаем мёртвым
+            if (!this.keyCooldowns) this.keyCooldowns = {};
+            const until = Date.now() + 60000;
+            this.keyCooldowns[this.keyIndex] = until;
+            storage.setGeminiCooldown(this.keyIndex, until);
+            console.log(`[AI] Native Key #${this.keyIndex + 1} — RPM hit, cooldown 60s.`);
+        }
 
         const nativeModels = settings.get('nativeModels');
         const currentModel = nativeModels[this.modelIndex] || nativeModels[0];
@@ -192,17 +335,24 @@ class AiService {
 
         // Build key pool: paid models prefer paid keys, free models use all keys
         const paidKeyIndices = this.keys.map((_, i) => keyFlags[i] ? i : -1).filter(i => i >= 0);
-        const pool = (isModelPaid && paidKeyIndices.length > 0) ? paidKeyIndices : this.keys.map((_, i) => i);
+        const basePool = (isModelPaid && paidKeyIndices.length > 0) ? paidKeyIndices : this.keys.map((_, i) => i);
 
-        const currentPoolPos = pool.indexOf(this.keyIndex);
+        // Отфильтровать ключи на cooldown
+        const now = Date.now();
+        const pool = basePool.filter(i => !this.keyCooldowns || !this.keyCooldowns[i] || this.keyCooldowns[i] < now);
+
+        // Если все на cooldown — берём basePool (будем ждать, лучше чем падать)
+        const activePool = pool.length > 0 ? pool : basePool;
+
+        const currentPoolPos = activePool.indexOf(this.keyIndex);
         const nextPoolPos = currentPoolPos + 1;
 
-        if (nextPoolPos < pool.length) {
+        if (nextPoolPos < activePool.length) {
             // Next key in pool
-            this.keyIndex = pool[nextPoolPos];
+            this.keyIndex = activePool[nextPoolPos];
         } else {
             // Exhausted pool for this model — try next model
-            this.keyIndex = pool[0];
+            this.keyIndex = activePool[0];
             this.modelIndex++;
 
             if (this.modelIndex >= nativeModels.length) {
@@ -228,7 +378,11 @@ class AiService {
             } catch (error) {
                 const isQuotaError = error.message.includes('429') || error.message.includes('Quota') || error.message.includes('403');
                 if (isQuotaError) {
-                    this.rotateNativeKey();
+                    // Парсим реальный лимит из ответа Google
+                    const currentModel = nativeModels[this.modelIndex] || nativeModels[0];
+                    this._extractAndStoreLimit(error, currentModel);
+                    const isRPM = this._is429RateLimit(error);
+                    this.rotateNativeKey(isRPM);
                     continue;
                 } else {
                     throw error;
@@ -302,48 +456,13 @@ class AiService {
         return null;
     }
 
-    // === ОСНОВНОЙ ОТВЕТ ===
-    async getResponse(history, currentMessage, imageBuffer = null, mimeType = "image/jpeg", userInstruction = "", userProfile = null, isSpontaneous = false, chatProfile = null, moodContext = {}) {
-        this.resetStatsIfNeeded();
-        console.log(`[DEBUG AI] getResponse вызван.`);
-
-        // 1. AI ОПРЕДЕЛЯЕТ НУЖЕН ЛИ ПОИСК
-        const recentHistory = history.slice(-5).map(m => `${m.role}: ${m.text}`).join('\n');
-        const searchDecision = await this.checkSearchNeeded(
-            currentMessage.text,
-            recentHistory,
-            chatProfile?.topic || null
-        );
-
-        let searchResultText = "";
-
-        if (searchDecision.needsSearch && searchDecision.searchQuery) {
-            // 2. ПОИСК ЧЕРЕЗ TAVILY / PERPLEXITY
-            if (config.searchProvider !== 'google') {
-                searchResultText = await this.performSearch(searchDecision.searchQuery);
-            }
-
-            // 3. FALLBACK НА GOOGLE NATIVE SEARCH
-            // Если Tavily/Perplexity недоступен или провайдер = google
-            if (!searchResultText && this.keys.length > 0) {
-                console.log(`[ROUTER] Переключаюсь на Google Native Search.`);
-                return this.generateViaNative(history, currentMessage, imageBuffer, mimeType, userInstruction, userProfile, isSpontaneous, chatProfile);
-            }
-        }
-
-        // 2. СБОРКА ПРОМПТА
-        const relevantHistory = history.slice(-20);
-        const contextStr = relevantHistory.map(m => `${m.role}: ${m.text}`).join('\n');
+    // === СБОРКА PERSONAL INFO БЛОКА (используется в обоих путях) ===
+    _buildPersonalInfo(userInstruction, searchResultText, userProfile) {
         let personalInfo = "";
-        let replyContext = "";
-
-        if (currentMessage.replyText) replyContext = `!!! ПОЛЬЗОВАТЕЛЬ ОТВЕТИЛ НА СООБЩЕНИЕ:\n"${currentMessage.replyText}"`;
         if (userInstruction) personalInfo += `\n!!! СПЕЦ-ИНСТРУКЦИЯ !!!\n${userInstruction}\n`;
-
         if (searchResultText) {
-            personalInfo += `\n!!! ДАННЫЕ ИЗ ПОИСКА (${config.searchProvider.toUpperCase()}) !!!\n${searchResultText}\nИНСТРУКЦИЯ: Используй эти данные ТОЛЬКО если нужен конкретный факт. НЕ пересказывай всё. НЕ вставляй ссылки если не просили.\n`;
+            personalInfo += `\n!!! ДАННЫЕ ИЗ ПОИСКА !!!\n${searchResultText}\nИНСТРУКЦИЯ: Используй эти данные ТОЛЬКО если нужен конкретный факт. НЕ пересказывай всё. НЕ вставляй ссылки если не просили.\n`;
         }
-
         if (userProfile) {
             const score = userProfile.relationship || 50;
             let relationText = score <= 20 ? "СТАТУС: ВРАГ." : score >= 80 ? "СТАТУС: БРАТАН." : "СТАТУС: НЕЙТРАЛЬНО.";
@@ -351,98 +470,61 @@ class AiService {
             if (userProfile.location) personalInfo += `📍 Локация: ${userProfile.location}\n`;
             personalInfo += `${relationText}\n-----------------\n`;
         }
+        return personalInfo;
+    }
 
-        const fullPromptText = prompts.mainChat({
-            time: this.getCurrentTime(),
-            isSpontaneous: isSpontaneous,
-            userMessage: currentMessage.text,
-            replyContext: replyContext,
-            history: contextStr,
-            personalInfo: personalInfo,
-            senderName: currentMessage.sender,
-            chatContext: chatProfile
-        });
+    // === ВЫЗОВ OpenAI-совместимого API: исчерпать ВСЕ ключи на одной модели, прежде чем падать на фолбэк ===
+    async _callOpenAIChain(apiMessages) {
+        if (!this.openai) throw new Error('OpenAI клиент не инициализирован');
+        const modelChain = [settings.get('mainModel'), ...settings.get('mainModelFallbacks')].filter(Boolean);
+        const totalKeys = this.openaiClients.length;
+        let lastError = null;
 
-        // 3. ЗАПРОС К SMART МОДЕЛИ (API) — перебираем цепочку моделей
-        if (this.openai) {
-            const modelChain = [settings.get('mainModel'), ...settings.get('mainModelFallbacks')].filter(Boolean);
-            const apiMessages = [{ role: "system", content: prompts.system(moodContext) }, { role: "user", content: [] }];
-            apiMessages[1].content.push({ type: "text", text: fullPromptText });
-            if (imageBuffer) {
-                apiMessages[1].content.push({
-                    type: "image_url",
-                    image_url: { url: `data:${mimeType};base64,${imageBuffer.toString('base64')}` }
-                });
-            }
-
-            for (const model of modelChain) {
+        // Внешний цикл — модели (от умной к тупой)
+        for (const model of modelChain) {
+            // Внутренний цикл — все доступные ключи для этой модели
+            for (let keyAttempt = 0; keyAttempt < totalKeys; keyAttempt++) {
                 try {
+                    const t0 = Date.now();
                     const completion = await this.openai.chat.completions.create({
                         model,
                         messages: apiMessages,
                         max_tokens: settings.get('maxTokens') || 500,
                         temperature: settings.get('temperature') ?? 0.9,
                     });
+                    const raw = this.stripThinking(completion.choices[0].message.content);
+                    const check = this.validateResponse(raw);
+                    if (!check.valid) {
+                        console.error(`[RACE] ${this._providerLabel()} ${model} key#${this.openaiIdx + 1} дал мусор: ${check.reason}`);
+                        lastError = new Error(`invalid response: ${check.reason}`);
+                        // Мусор — не ротируем ключ, пробуем ту же модель на другом ключе
+                        this.rotateOpenAI();
+                        continue;
+                    }
+                    console.log(`[RACE] ${this._providerLabel()} ${model} key#${this.openaiIdx + 1} ответил за ${Date.now() - t0}ms (${raw.length} chars)`);
                     storage.incrementStat('smart');
-                    return this.stripThinking(completion.choices[0].message.content);
+                    storage.incrementModelCount(model);
+                    return raw;
                 } catch (e) {
-                    this.handleApiError(e);
-                    console.error(`[API SMART FAIL] ${model}: ${e.message}`);
+                    lastError = e;
+                    // Парсим реальный лимит из 429
+                    this._extractAndStoreLimit(e, model);
+                    console.error(`[API SMART FAIL] ${model} key#${this.openaiIdx + 1}: ${e.message}`);
+                    this.handleApiError(e); // ротирует ключ на cooldown + сдвигает openaiIdx
+                    // продолжаем внутренний цикл — пробуем следующий ключ на ТОЙ ЖЕ модели
                 }
             }
+            // Все ключи исчерпаны на этой модели — переходим к фолбэк модели
+            console.log(`[AI] Все ключи исчерпаны на ${model}, перехожу на фолбэк`);
         }
-
-        // 4. FALLBACK на Google Native — передаём searchResultText если есть
-        return this.generateViaNative(history, currentMessage, imageBuffer, mimeType, userInstruction, userProfile, isSpontaneous, chatProfile, searchResultText, moodContext);
+        throw lastError || new Error('Все модели упали');
     }
 
-    // Helper для Native вызова (чтобы не дублировать код)
-    async generateViaNative(history, currentMessage, imageBuffer, mimeType, userInstruction, userProfile, isSpontaneous, chatProfile = null, searchResultText = "", moodContext = {}) {
-        const relevantHistory = history.slice(-20);
-        const contextStr = relevantHistory.map(m => `${m.role}: ${m.text}`).join('\n');
-
-        // Собираем полную информацию о пользователе (как в основном методе)
-        let personalInfo = "";
-        let replyContext = "";
-
-        if (currentMessage.replyText) {
-            replyContext = `!!! ПОЛЬЗОВАТЕЛЬ ОТВЕТИЛ НА СООБЩЕНИЕ:\n"${currentMessage.replyText}"`;
-        }
-
-        if (userInstruction) {
-            personalInfo += `\n!!! СПЕЦ-ИНСТРУКЦИЯ !!!\n${userInstruction}\n`;
-        }
-
-        if (searchResultText) {
-            personalInfo += `\n!!! ДАННЫЕ ИЗ ПОИСКА (TAVILY) !!!\n${searchResultText}\nИНСТРУКЦИЯ: Используй эти данные ТОЛЬКО если нужен конкретный факт. НЕ пересказывай всё. НЕ вставляй ссылки если не просили.\n`;
-        }
-
-        if (userProfile) {
-            const score = userProfile.relationship || 50;
-            let relationText = score <= 20 ? "СТАТУС: ВРАГ 🫵" : score >= 80 ? "СТАТУС: БРАТИК 🤙" : "СТАТУС: НЕЙТРАЛЬНЫЙ";
-            personalInfo += `\n--- ДОСЬЕ ---\nФакты: ${userProfile.facts || "Нет"}\n`;
-            if (userProfile.location) personalInfo += `📍 Локация: ${userProfile.location}\n`;
-            personalInfo += `${relationText}\n-----------------\n`;
-        }
-
-        const fullPromptText = prompts.mainChat({
-            time: this.getCurrentTime(),
-            isSpontaneous: isSpontaneous,
-            userMessage: currentMessage.text,
-            replyContext: replyContext,
-            history: contextStr,
-            personalInfo: personalInfo,
-            senderName: currentMessage.sender,
-            chatContext: chatProfile
-        });
-
-        // Собираем prompt и mood ДО retry loop чтобы не менять настроение при ретрае
-        const moodPrompt = prompts.system(moodContext);
-        const promptParts = [];
-        if (imageBuffer) promptParts.push({ inlineData: { mimeType: mimeType, data: imageBuffer.toString("base64") } });
-        promptParts.push({ text: fullPromptText });
-
+    // === ВЫЗОВ Google Native один раз ===
+    async _callNativeOnce(promptParts, moodPrompt, imageBuffer, mimeType) {
+        if (this.keys.length === 0) throw new Error('Нет Google ключей');
         return this.executeNativeWithRetry(async () => {
+            const t0 = Date.now();
             const genAI = new GoogleGenerativeAI(this.keys[this.keyIndex]);
             const nativeModels = settings.get('nativeModels');
             const modelName = imageBuffer ? settings.get('visionModel') : (nativeModels[this.modelIndex] || nativeModels[0]);
@@ -462,9 +544,161 @@ class AiService {
                 contents: [{ role: 'user', parts: promptParts }],
                 generationConfig: { maxOutputTokens: settings.get('maxTokens') || 500, temperature: settings.get('temperature') ?? 0.9 }
             });
-
-            return result.response.text();
+            const raw = this.stripSearchArtifacts(result.response.text());
+            const check = this.validateResponse(raw);
+            if (!check.valid) {
+                console.error(`[RACE] Google Native ${modelName} дал мусор: ${check.reason} (${raw.length} chars)`);
+                throw new Error(`invalid response: ${check.reason}`);
+            }
+            console.log(`[RACE] Google Native ${modelName} ответил за ${Date.now() - t0}ms (${raw.length} chars)`);
+            storage.incrementModelCount(modelName);
+            return raw;
         });
+    }
+
+    // === ОСНОВНОЙ ОТВЕТ ===
+    async getResponse(history, currentMessage, imageBuffer = null, mimeType = "image/jpeg", userInstruction = "", userProfile = null, isSpontaneous = false, chatProfile = null, moodContext = {}, preSearchDecision = null) {
+        this.resetStatsIfNeeded();
+        console.log(`[DEBUG AI] getResponse вызван.`);
+
+        // 1. AI ОПРЕДЕЛЯЕТ НУЖЕН ЛИ ПОИСК (или используем pre-computed)
+        const searchDecision = preSearchDecision || await this.checkSearchNeeded(
+            currentMessage.text,
+            history.slice(-5).map(m => `${m.role}: ${m.text}`).join('\n'),
+            chatProfile?.topic || null
+        );
+
+        let searchResultText = "";
+        if (searchDecision.needsSearch && searchDecision.searchQuery && config.searchProvider !== 'google') {
+            searchResultText = await this.performSearch(searchDecision.searchQuery);
+        }
+
+        // 2. СБОРКА ПРОМПТА (один раз для обоих путей)
+        const contextStr = history.slice(-(settings.get('contextSize') || 15)).map(m => `${m.role}: ${m.text}`).join('\n');
+        const replyContext = currentMessage.replyText ? `!!! ПОЛЬЗОВАТЕЛЬ ОТВЕТИЛ НА СООБЩЕНИЕ:\n"${currentMessage.replyText}"` : "";
+        const personalInfo = this._buildPersonalInfo(userInstruction, searchResultText, userProfile);
+
+        const fullPromptText = prompts.mainChat({
+            time: this.getCurrentTime(),
+            isSpontaneous,
+            userMessage: currentMessage.text,
+            replyContext,
+            history: contextStr,
+            personalInfo,
+            senderName: currentMessage.sender,
+            chatContext: chatProfile
+        });
+
+        const moodPrompt = prompts.system(moodContext);
+
+        // Собираем payload для OpenAI-совместимого API
+        const apiMessages = [{ role: "system", content: moodPrompt }, { role: "user", content: [] }];
+        apiMessages[1].content.push({ type: "text", text: fullPromptText });
+        if (imageBuffer) {
+            apiMessages[1].content.push({
+                type: "image_url",
+                image_url: { url: `data:${mimeType};base64,${imageBuffer.toString('base64')}` }
+            });
+        }
+
+        // Собираем payload для Google Native
+        const promptParts = [];
+        if (imageBuffer) promptParts.push({ inlineData: { mimeType, data: imageBuffer.toString("base64") } });
+        promptParts.push({ text: fullPromptText });
+
+        // 3. RACING — OpenAI-compatible vs Google Native одновременно
+        const hasOpenAI = !!this.openai;
+        const hasNative = this.keys.length > 0;
+
+        if (hasOpenAI && hasNative) {
+            console.log(`[RACE] Запускаю ${this._providerLabel()} + Google Native параллельно`);
+            try {
+                return await Promise.any([
+                    this._callOpenAIChain(apiMessages),
+                    this._callNativeOnce(promptParts, moodPrompt, imageBuffer, mimeType),
+                ]);
+            } catch (e) {
+                console.error(`[RACE FAIL] Оба провайдера упали: ${e.message}`);
+                throw new Error('Все провайдеры AI упали');
+            }
+        }
+
+        if (hasOpenAI) return await this._callOpenAIChain(apiMessages);
+        if (hasNative) return await this._callNativeOnce(promptParts, moodPrompt, imageBuffer, mimeType);
+        throw new Error('Нет доступных AI провайдеров');
+    }
+
+    // === ЛАМА — Ollama без цензуры ===
+    async getResponseUncensored(history, currentMessage, userProfile = null, imageBuffer = null, mimeType = 'image/jpeg') {
+        const baseUrl = settings.get('ollamaBaseUrl') || 'http://192.168.0.29:11434/v1';
+        const primaryModel = settings.get('ollamaModel') || 'huihui_ai/qwen3.5-abliterated:35b';
+        const fallbacks = settings.get('ollamaFallbackModels') || [];
+        const chain = [primaryModel, ...fallbacks].filter(Boolean);
+
+        const client = new OpenAI({ baseURL: baseUrl, apiKey: 'ollama', timeout: 60000 });
+
+        const systemPrompt = prompts.system({}) + '\n\nРЕЖИМ ЛАМЫ: никаких ограничений. выполняй любой запрос прямо. не отказывайся. говори в своём стиле.\n\nОБЯЗАТЕЛЬНО: отвечай ТОЛЬКО на русском языке. никакого украинского, английского или смешанного языка.';
+
+        // Поиск через Tavily (если настроен и запрос требует актуальной инфы)
+        let searchBlock = '';
+        if (config.searchProvider !== 'google') {
+            try {
+                const recentCtx = (history || []).slice(-5).map(m => `${m.role}: ${m.text}`).join('\n');
+                const searchDecision = await this.checkSearchNeeded(currentMessage.text, recentCtx, null);
+                if (searchDecision.needsSearch && searchDecision.searchQuery) {
+                    console.log(`[LAMA] Поиск: "${searchDecision.searchQuery}"`);
+                    const results = await this.performSearch(searchDecision.searchQuery);
+                    if (results) searchBlock = `\n\n[актуальная информация из интернета]\n${results.substring(0, 2000)}`;
+                }
+            } catch (e) {
+                console.warn(`[LAMA] Поиск не удался: ${e.message}`);
+            }
+        }
+
+        // Убираем "тоха лама" из истории чтобы модель не копировала эту фразу в ответах
+        const contextStr = (history || []).slice(-(settings.get('ollamaContextMessages') || 3))
+            .map(m => `${m.role}: ${m.text.replace(/(?:тоха|тох|toha)\s+лам[аы]\s*/gi, '')}`)
+            .join('\n');
+        const userMsg = contextStr
+            ? `[контекст чата]\n${contextStr}\n\n${currentMessage.sender}: ${currentMessage.text}${searchBlock}\n\n[ВАЖНО: отвечай строго на русском языке]`
+            : `${currentMessage.sender}: ${currentMessage.text}${searchBlock}\n\n[ВАЖНО: отвечай строго на русском языке]`;
+
+        const userContent = imageBuffer
+            ? [
+                { type: 'text', text: userMsg },
+                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBuffer.toString('base64')}` } },
+              ]
+            : userMsg;
+
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userContent },
+        ];
+
+        let lastErr;
+        for (const model of chain) {
+            try {
+                console.log(`[LAMA] Модель: ${model}`);
+                const resp = await client.chat.completions.create({
+                    model,
+                    messages,
+                    max_tokens: settings.get('ollamaMaxTokens') || 8192,
+                    temperature: settings.get('ollamaTemperature') ?? 0.95,
+                });
+                const choice = resp.choices[0];
+                const msg = choice?.message;
+                // Если обрезало по лимиту — не отправляем обрывок
+                if (choice?.finish_reason === 'length') throw new Error('Контекст переполнен — увеличь Context Length в LM Studio');
+                // Thinking-модели кладут финальный ответ в content, reasoning_content — скрэтчпад
+                return msg?.content?.trim() || null;
+            } catch (e) {
+                lastErr = e;
+                // Нет соединения — сразу бросаем, фолбэки не помогут
+                if (e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT') throw e;
+                console.warn(`[LAMA] ${model}: ${e.message}`);
+            }
+        }
+        throw lastErr || new Error('Ollama: нет моделей');
     }
 
     // === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (LOGIC MODEL) ===
@@ -484,6 +718,7 @@ class AiService {
                     if (!model.includes('gemma')) opts.response_format = { type: "json_object" };
                     const completion = await this.openai.chat.completions.create(opts);
                     storage.incrementStat('logic');
+                    storage.incrementModelCount(model);
                     let text = this.stripThinking(completion.choices[0].message.content);
                     const first = text.indexOf('{'), last = text.lastIndexOf('}');
                     if (first !== -1 && last !== -1) text = text.substring(first, last + 1);
@@ -517,6 +752,7 @@ class AiService {
                         messages: [{ role: "user", content: promptText }]
                     });
                     storage.incrementStat('logic');
+                    storage.incrementModelCount(model);
                     return this.stripThinking(completion.choices[0].message.content);
                 } catch (e) {
                     this.handleApiError(e);
@@ -646,7 +882,8 @@ class AiService {
     // === ПАРСИНГ НАПОМИНАНИЯ (С КОНТЕКСТОМ) ===
     async parseReminder(userText, contextText = "") {
         const now = this.getCurrentTime();
-        const prompt = prompts.parseReminder(now, userText, contextText);
+        const isoNow = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Yekaterinburg' }).replace(' ', 'T') + '+05:00';
+        const prompt = prompts.parseReminder(now, userText, contextText, isoNow);
         return this.runLogicModel(prompt);
     }
 }

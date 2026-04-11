@@ -6,6 +6,7 @@ node_modules/
 
 # Данные бота (ТУТ ПЕРЕПИСКИ И ПРОФИЛИ)
 data/
+!data/botSettings.json
 db.json
 profiles.json
 skipLeftData.json
@@ -15,4 +16,5 @@ instructions.json
 .DS_Store
 
 # Локальные заметки
-todo.txtadmin-panel/server/.dev-pid
+todo.txt
+admin-panel/server/.dev-pid

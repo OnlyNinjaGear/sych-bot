@@ -55,6 +55,9 @@ function writeEnvFile(filePath, config) {
     lines.push(`GOOGLE_GEMINI_API_KEY_${idx + 2}=${key}`);
   });
   lines.push('');
+  lines.push('# === Google Gemini (Image Generation — Nano Banana / Imagen 4, платный ключ) ===');
+  lines.push(`GOOGLE_GEMINI_IMAGE_KEY=${config.gemini.imageKey || ''}`);
+  lines.push('');
 
   lines.push('# === Admin Panel ===');
   lines.push(`ADMIN_PANEL_PASSWORD=${config.admin.ADMIN_PANEL_PASSWORD || ''}`);
@@ -81,7 +84,7 @@ function structuredConfig(envMap) {
       SEARCH_PROVIDER: envMap['SEARCH_PROVIDER'] || 'tavily',
       TAVILY_API_KEY: envMap['TAVILY_API_KEY'] || '',
     },
-    gemini: { primary, additional },
+    gemini: { primary, additional, imageKey: envMap['GOOGLE_GEMINI_IMAGE_KEY'] || '' },
     admin: {
       ADMIN_PANEL_PASSWORD: envMap['ADMIN_PANEL_PASSWORD'] || '',
       ADMIN_PANEL_PORT: envMap['ADMIN_PANEL_PORT'] || '3001',

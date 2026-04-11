@@ -691,9 +691,39 @@ export default function BotSettingsPage() {
             onChange={v => set('allowedChatIds', v)}
           />
 
-          <Button onClick={() => save.mutate(s)} disabled={save.isPending}>
-            {save.isPending ? 'Сохранение...' : 'Сохранить'}
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button onClick={() => save.mutate(s)} disabled={save.isPending}>
+              {save.isPending ? 'Сохранение...' : 'Сохранить'}
+            </Button>
+            <Button variant="outline" onClick={() => {
+              const blob = new Blob([JSON.stringify(s, null, 2)], { type: 'application/json' })
+              const a = document.createElement('a')
+              a.href = URL.createObjectURL(blob)
+              a.download = `botSettings-${new Date().toISOString().slice(0, 10)}.json`
+              a.click()
+            }}>Экспорт</Button>
+            <label>
+              <Button variant="outline" asChild>
+                <span>Импорт</span>
+              </Button>
+              <input type="file" accept=".json" className="hidden" onChange={e => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = ev => {
+                  try {
+                    const parsed = JSON.parse(ev.target?.result as string)
+                    setS(prev => prev ? { ...prev, ...parsed } : parsed)
+                    toast.success('Настройки загружены — не забудь сохранить')
+                  } catch {
+                    toast.error('Неверный формат файла')
+                  }
+                }
+                reader.readAsText(file)
+                e.target.value = ''
+              }} />
+            </label>
+          </div>
         </div>
       </div>
     </div >

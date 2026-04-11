@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
-import { Progress } from '@/components/ui/progress'
 import { Slider } from '@/components/ui/slider'
 import { api } from '@/lib/api'
 
@@ -21,6 +20,21 @@ interface UserProfile {
 interface ProfilesData {
   profiles: Record<string, Record<string, UserProfile>>
   chatNames: Record<string, string>
+}
+
+function ReputationSlider({ chatId, userId, value, onSave }: {
+  chatId: string; userId: string; value: number
+  onSave: (args: { chatId: string; userId: string; value: number }) => void
+}) {
+  const [local, setLocal] = useState(value)
+  return (
+    <div className="flex items-center gap-2">
+      <Slider min={0} max={100} step={5} value={[local]} className="flex-1"
+        onValueChange={([v]) => setLocal(v)}
+        onValueCommit={([v]) => onSave({ chatId, userId, value: v })} />
+      <span className="text-xs text-muted-foreground w-8 text-right">{local}</span>
+    </div>
+  )
 }
 
 export default function ProfilesPage() {
@@ -114,17 +128,19 @@ export default function ProfilesPage() {
                           <p className="font-medium text-sm">{profile.realName || 'Без имени'}</p>
                           <p className="text-xs text-muted-foreground">ID: {uid}</p>
                         </div>
-                        {profile.location && (
-                          <Badge variant="outline" className="text-xs">{profile.location}</Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {profile.location && (
+                            <Badge variant="outline" className="text-xs">{profile.location}</Badge>
+                          )}
+                          <Button variant="ghost" size="sm" className="text-destructive text-xs shrink-0"
+                            onClick={() => deleteUser.mutate({ chatId, userId: uid })}>✕</Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Slider min={0} max={100} step={5} value={[profile.relationship ?? 50]} className="flex-1"
-                          onValueCommit={([v]) => setReputation.mutate({ chatId, userId: uid, value: v })} />
-                        <span className="text-xs text-muted-foreground w-8 text-right">{profile.relationship ?? 50}</span>
-                        <Button variant="ghost" size="sm" className="text-destructive text-xs shrink-0"
-                          onClick={() => deleteUser.mutate({ chatId, userId: uid })}>✕</Button>
-                      </div>
+                      <ReputationSlider
+                        chatId={chatId} userId={uid}
+                        value={profile.relationship ?? 50}
+                        onSave={args => setReputation.mutate(args)}
+                      />
                       {profile.facts && (
                         <p className="text-xs text-muted-foreground">{profile.facts}</p>
                       )}

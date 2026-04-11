@@ -19,8 +19,10 @@ class StorageService {
     this.profiles = {};
     this.chatProfiles = {};
     this.stats = this._getDefaultStats();
-    // Очередь обновлений профилей для предотвращения race condition
     this.profileUpdateQueue = Promise.resolve();
+    this._profilesWatcher = null;
+    this._profilesDebounce = null;
+    this._skipProfilesReload = false;
 
     // 1. Создаем структуру файлов, если их нет
     this.ensureFile(DB_PATH, '{"chats": {}}');
@@ -103,6 +105,24 @@ class StorageService {
       console.error("Ошибка чтения Stats, сброс.");
       this.stats = this._getDefaultStats();
     }
+
+    // Следим за profiles.json — перезагружаем если admin panel изменил файл снаружи
+    if (!this._profilesWatcher) {
+      try {
+        this._profilesWatcher = fs.watch(PROFILES_PATH, () => {
+          clearTimeout(this._profilesDebounce);
+          this._profilesDebounce = setTimeout(() => {
+            if (this._skipProfilesReload) return;
+            try {
+              this.profiles = JSON.parse(fs.readFileSync(PROFILES_PATH, 'utf-8'));
+              console.log('[STORAGE] profiles.json перезагружен (внешнее изменение)');
+            } catch {}
+          }, 300);
+        });
+      } catch (e) {
+        console.warn('[STORAGE] Не удалось запустить watcher на profiles.json:', e.message);
+      }
+    }
   }
 
   // === НАПОМИНАЛКИ (Новые методы) ===
@@ -162,7 +182,9 @@ class StorageService {
 
   _saveProfilesToFile() {
     try {
+      this._skipProfilesReload = true;
       fs.writeFileSync(PROFILES_PATH, JSON.stringify(this.profiles, null, 2));
+      setTimeout(() => { this._skipProfilesReload = false; }, 500);
     } catch (e) { console.error("Ошибка записи Profiles:", e); }
   }
 
@@ -276,6 +298,75 @@ class StorageService {
       this.stats.today.google[keyIndex].status = false;
       this.saveStats();
     }
+  }
+
+  // Сохранить текущий активный ключ и модель (для дашборда)
+  setActiveGemini(keyIndex, modelName) {
+    this.stats.today.activeKey = keyIndex;
+    this.stats.today.activeModel = modelName;
+    this.saveStats();
+  }
+
+  // Сохранить cooldown для Native ключа
+  setGeminiCooldown(keyIndex, untilTs) {
+    if (this.stats.today.google[keyIndex]) {
+      this.stats.today.google[keyIndex].cooldownUntil = untilTs;
+      this.saveStats();
+    }
+  }
+
+  // Сохранить реальный лимит детектированный из 429 (persistent, живёт между днями)
+  setDetectedLimit(modelName, quotaType, value) {
+    if (!this.stats.detectedLimits) this.stats.detectedLimits = {};
+    if (!this.stats.detectedLimits[modelName]) this.stats.detectedLimits[modelName] = {};
+    this.stats.detectedLimits[modelName][quotaType] = {
+      value,
+      detectedAt: Date.now(),
+    };
+    this.saveStats();
+  }
+
+  // Ручные лимиты (введённые юзером из AI Studio)
+  getManualLimits() {
+    return this.stats.manualLimits || {};
+  }
+
+  setManualLimit(modelName, quotaType, value) {
+    if (!this.stats.manualLimits) this.stats.manualLimits = {};
+    if (!this.stats.manualLimits[modelName]) this.stats.manualLimits[modelName] = {};
+    if (value === null || value === undefined || value === '') {
+      delete this.stats.manualLimits[modelName][quotaType];
+      if (Object.keys(this.stats.manualLimits[modelName]).length === 0) {
+        delete this.stats.manualLimits[modelName];
+      }
+    } else {
+      this.stats.manualLimits[modelName][quotaType] = parseInt(value);
+    }
+    this.saveStats();
+  }
+
+  // Nano Banana: трекинг генерации/редактирования изображений
+  // type: 'generated' | 'edited' | 'error'
+  incrementNanoBananaStat(type, model) {
+    this.resetStatsIfNeeded();
+    if (!this.stats.today.nanoBanana) {
+      this.stats.today.nanoBanana = { generated: 0, edited: 0, errors: 0, lastModel: null };
+    }
+    const nb = this.stats.today.nanoBanana;
+    if (type === 'generated') nb.generated++;
+    else if (type === 'edited') nb.edited++;
+    else if (type === 'error') nb.errors++;
+    if (model) nb.lastModel = model;
+    this.saveStats();
+  }
+
+  // Счётчики запросов ПО МОДЕЛЯМ (для агрегата)
+  incrementModelCount(modelName) {
+    if (!modelName) return;
+    this.resetStatsIfNeeded();
+    if (!this.stats.today.modelCounts) this.stats.today.modelCounts = {};
+    this.stats.today.modelCounts[modelName] = (this.stats.today.modelCounts[modelName] || 0) + 1;
+    this.saveStats();
   }
 
   // Сброс статистики в полночь (с архивацией)
