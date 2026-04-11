@@ -1,5 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const config = require('./config');
+const settings = require('./settings');
 const logic = require('./core/logic');
 const storage = require('./services/storage');
 
@@ -75,7 +76,10 @@ bot.on('message', async (msg) => {
   const chatTitle = msg.chat.title || "Личка";
 
   // === WHITELIST: только разрешённые чаты ===
-  if (msg.chat.type !== 'private' && !config.allowedChatIds.includes(chatId)) {
+  // Нормализуем ID: -1001234567890 → 1234567890, -1234567890 → 1234567890
+  const normId = (id) => { const n = Math.abs(Number(id)); return n > 1e12 ? n - 1e12 : n; };
+  const allowedChatIds = settings.get('allowedChatIds') || [];
+  if (msg.chat.type !== 'private' && !allowedChatIds.some(id => normId(id) === normId(chatId))) {
     console.log(`[WHITELIST] Чужой чат "${chatTitle}" (${chatId}), ухожу.`);
     await bot.sendMessage(chatId, "Это приватный бот, так что давай соси хуец)").catch(() => { });
     await bot.leaveChat(chatId).catch(() => { });
@@ -133,9 +137,19 @@ bot.on('message', async (msg) => {
   await logic.processMessage(bot, msg);
 });
 
-// Сохраняем базу при выходе
-process.on('SIGINT', () => {
-  console.log("Сохранение данных перед выходом...");
+let isShuttingDown = false;
+async function shutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[${signal}] Завершение — сохраняю данные...`);
+  try {
+    await bot.stopPolling();
+  } catch (e) {
+    // ignore
+  }
   storage.forceSave();
-  process.exit();
-});
+  process.exit(0);
+}
+
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -28,6 +28,13 @@ const defaults = {
   bufferSize: 20,                // сообщений до анализа профиля юзера
   chatBufferSize: 50,            // сообщений до анализа профиля чата
   geminiKeysPaid: [],            // boolean[] - true если ключ платный
+  ollamaBaseUrl: 'http://192.168.0.29:11434/v1',
+  ollamaModel: 'huihui_ai/qwen3.5-abliterated:35b',
+  ollamaFallbackModels: [],
+  ollamaMaxTokens: 8192,
+  ollamaTemperature: 0.95,
+  ollamaContextMessages: 3,
+  allowedChatIds: [-1001387634695, -1003485545399], // whitelist групповых чатов (приватные не проверяются)
   responses: {
     // Ошибки AI — массивы вариантов, бот выбирает случайный
     errorCensored: [

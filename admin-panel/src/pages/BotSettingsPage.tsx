@@ -59,6 +59,7 @@ interface BotSettings {
   ollamaMaxTokens: number
   ollamaTemperature: number
   ollamaContextMessages: number
+  allowedChatIds: number[]
 }
 
 function HotBadge() {
@@ -155,6 +156,51 @@ function ModelChain({
         + Добавить фолбэк
       </Button>
     </div>
+  )
+}
+
+function ChatWhitelist({ ids, onChange }: { ids: number[], onChange: (v: number[]) => void }) {
+  const [input, setInput] = useState('')
+
+  function add() {
+    const n = parseInt(input.trim(), 10)
+    if (!isNaN(n) && !ids.includes(n)) onChange([...ids, n])
+    setInput('')
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Белый список чатов</CardTitle>
+        <CardDescription>
+          Группы, в которых работает бот. Приватные чаты не проверяются. Любой формат ID подойдёт — нормализуем автоматически.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          {ids.map(id => (
+            <div key={id} className="flex items-center gap-1 bg-muted rounded px-2 py-1 text-sm font-mono">
+              {id}
+              <button
+                className="text-muted-foreground hover:text-destructive ml-1"
+                onClick={() => onChange(ids.filter(x => x !== id))}
+              >✕</button>
+            </div>
+          ))}
+          {ids.length === 0 && <span className="text-sm text-muted-foreground">Список пуст — бот уходит из всех групп</span>}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && add()}
+            placeholder="-1001234567890"
+            className="font-mono text-sm w-56"
+          />
+          <Button variant="outline" size="sm" onClick={add}>Добавить</Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -639,6 +685,11 @@ export default function BotSettingsPage() {
             </Card>
           </div>
 
+
+          <ChatWhitelist
+            ids={s.allowedChatIds ?? []}
+            onChange={v => set('allowedChatIds', v)}
+          />
 
           <Button onClick={() => save.mutate(s)} disabled={save.isPending}>
             {save.isPending ? 'Сохранение...' : 'Сохранить'}

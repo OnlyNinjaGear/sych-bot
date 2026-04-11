@@ -62,15 +62,16 @@ module.exports = {
 
   // === GEMINI NATIVE (FALLBACK / SEARCH) ===
   geminiKeys: geminiKeys,
+  // Отдельный ключ для генерации изображений (платный аккаунт).
+  // Если не задан — используются geminiKeys (все равно не сработает на бесплатном).
+  geminiImageKey: process.env.GOOGLE_GEMINI_IMAGE_KEY || null,
   googleNativeModel: 'gemini-2.5-flash-lite',
   googleVisionModel: 'gemini-2.5-flash',
   fallbackModelName: 'gemini-2.5-flash-lite',
   contextSize: 30,
   triggerRegex: /(?<![а-яёa-z])(Тоха|тоха|Toha|toha|Тох|тох|Тохич|тохич|Тошик|тошик|Антоха|антоха|Антоша|антоша|Антошка|антошка|Бот|бот|Ботяра|ботяра|Ботик|ботик|Тохабот|тохабот)(?![а-яёa-z])/i,
-
-  // === WHITELIST ЧАТОВ ===
-  // Три варианта одного ID на случай разного формата Telegram
-  allowedChatIds: [1387634695, -1387634695, -1001387634695, 3485545399, -3485545399, -1003485545399],
+  // Триггер только в НАЧАЛЕ сообщения (реплаи освобождены от этого правила)
+  startTriggerRegex: /^(тоха|toha|тох|тохич|тошик|антоха|антоша|антошка|бот|ботяра|ботик|тохабот)(?![а-яёa-z])/i,
 
   // === УТИЛИТЫ ===
   ENV_PATH,
